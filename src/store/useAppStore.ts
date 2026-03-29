@@ -82,7 +82,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       dailyGoalKm: 3,
-      dailyGoalCalories: 2500,
+      dailyGoalCalories: 500,
       strideM: 0.78,
       backgroundWalkingEnabled: true,
       customWorkouts: [],

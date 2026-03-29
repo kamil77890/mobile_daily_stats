@@ -125,7 +125,7 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(() => {
       void refreshWalkingStatsNotificationFromStore();
-    }, 45_000);
+    }, 5_000);
     return () => clearInterval(interval);
   }, []);
 
