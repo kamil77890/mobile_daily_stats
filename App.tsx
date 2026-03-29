@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import {
   ensureBackgroundWalkingStarted,
+  restartBackgroundWalkingIfPeriodChanged,
   syncBackgroundWalkingSessionsFromStorage,
 } from './src/background/backgroundWalkingService';
 import { usePedometerSync } from './src/hooks/usePedometerSync';
@@ -114,6 +115,7 @@ export default function App() {
     return `${h?.steps ?? 0}-${h?.distanceM ?? 0}-${h?.kcal ?? 0}-${s.backgroundWalkingEnabled}`;
   });
 
+  // ── Notification setup ────────────────────────────────────────────
   useEffect(() => {
     void ensureWalkingStatsNotificationSetup();
   }, []);
@@ -122,6 +124,7 @@ export default function App() {
     void refreshWalkingStatsNotificationFromStore();
   }, [statsTick]);
 
+  // Refresh notification every 5 seconds when app is open
   useEffect(() => {
     const interval = setInterval(() => {
       void refreshWalkingStatsNotificationFromStore();
@@ -129,6 +132,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // ── Initial app load ──────────────────────────────────────────────
   useEffect(() => {
     const runDaily = () => {
       const key = dayKey();
@@ -153,6 +157,26 @@ export default function App() {
       }
     });
     return () => sub.remove();
+  }, []);
+
+  // ── Sync background data every 30 seconds while app is open ───────
+  // Also acts as the "activity status refresh" trigger (HomeScreen
+  // derives activity from the latest coords pulled in each sync).
+  useEffect(() => {
+    const id = setInterval(() => {
+      void syncBackgroundWalkingSessionsFromStorage();
+    }, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ── Check every 5 minutes if day/night period changed → restart
+  //    background service with the correct time interval ─────────────
+  //    Day (6-23): 1 min interval   Night (23-6): 10 min interval
+  useEffect(() => {
+    const id = setInterval(() => {
+      void restartBackgroundWalkingIfPeriodChanged();
+    }, 5 * 60_000);
+    return () => clearInterval(id);
   }, []);
 
   return (

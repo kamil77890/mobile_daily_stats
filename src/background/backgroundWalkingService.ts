@@ -10,6 +10,8 @@ import { loadAllPoints, pruneOldDays } from './bgWalkingStorage';
 import { BACKGROUND_WALKING_TASK } from './constants';
 
 let manualRecording = false;
+/** Track which period (day/night) the service was last started in, to detect when to restart */
+let lastStartedPeriod: 'day' | 'night' | null = null;
 
 function recentDayKeys(n: number): Set<string> {
   const s = new Set<string>();
@@ -19,6 +21,27 @@ function recentDayKeys(n: number): Set<string> {
     s.add(dayKey(d));
   }
   return s;
+}
+
+export function getCurrentPeriod(): 'day' | 'night' {
+  const hour = new Date().getHours();
+  return hour >= 23 || hour < 6 ? 'night' : 'day';
+}
+
+function getLocationOptions(): Pick<Location.LocationTaskOptions, 'timeInterval' | 'distanceInterval' | 'accuracy'> {
+  const period = getCurrentPeriod();
+  if (period === 'night') {
+    return {
+      accuracy: Location.Accuracy.Low,
+      distanceInterval: 100,
+      timeInterval: 10 * 60 * 1000, // 10 minutes at night (23-6)
+    };
+  }
+  return {
+    accuracy: Location.Accuracy.Balanced,
+    distanceInterval: 25,
+    timeInterval: 60 * 1000, // 1 minute during day (6-23)
+  };
 }
 
 /** Pause passive GPS while the user runs an explicit tracked workout. */
@@ -52,11 +75,32 @@ export async function syncBackgroundWalkingSessionsFromStorage(): Promise<void> 
   void refreshWalkingStatsNotificationFromStore();
 }
 
+/**
+ * Restarts background walking if the period (day/night) changed since last start.
+ * Call this periodically (e.g. every 5 minutes) from App.tsx.
+ */
+export async function restartBackgroundWalkingIfPeriodChanged(): Promise<void> {
+  if (manualRecording) return;
+  const enabled = useAppStore.getState().backgroundWalkingEnabled;
+  if (!enabled) return;
+
+  const currentPeriod = getCurrentPeriod();
+  if (lastStartedPeriod === currentPeriod) return; // no change needed
+
+  const running = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_WALKING_TASK).catch(() => false);
+  if (running) {
+    await Location.stopLocationUpdatesAsync(BACKGROUND_WALKING_TASK).catch(() => {});
+  }
+  lastStartedPeriod = null; // reset so ensureBackgroundWalkingStarted sets it fresh
+  await ensureBackgroundWalkingStarted();
+}
+
 export async function ensureBackgroundWalkingStarted(): Promise<void> {
   if (manualRecording) return;
   const enabled = useAppStore.getState().backgroundWalkingEnabled;
   if (!enabled) {
     await Location.stopLocationUpdatesAsync(BACKGROUND_WALKING_TASK).catch(() => {});
+    lastStartedPeriod = null;
     return;
   }
 
@@ -69,27 +113,39 @@ export async function ensureBackgroundWalkingStarted(): Promise<void> {
   }
 
   const running = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_WALKING_TASK);
-  if (running) return;
+  const currentPeriod = getCurrentPeriod();
+
+  // If already running and in the same period, no need to restart
+  if (running && lastStartedPeriod === currentPeriod) return;
+
+  // Stop if running to apply new settings
+  if (running) {
+    await Location.stopLocationUpdatesAsync(BACKGROUND_WALKING_TASK).catch(() => {});
+  }
+
+  const { accuracy, distanceInterval, timeInterval } = getLocationOptions();
 
   const options: Location.LocationTaskOptions = {
-    accuracy: Location.Accuracy.Balanced,
-    distanceInterval: 25,
-    timeInterval: 30000,
+    accuracy,
+    distanceInterval,
+    timeInterval,
     activityType: ActivityType.Fitness,
     pausesUpdatesAutomatically: true,
     showsBackgroundLocationIndicator: true,
   };
 
   if (Platform.OS === 'android') {
+    const periodLabel = currentPeriod === 'night' ? '(tryb nocny)' : '';
     options.foregroundService = {
-      notificationTitle: 'Walking · GPS on',
-      notificationBody: 'Open the app for live steps, km & kcal in the stats notification',
+      notificationTitle: `Walking · GPS on ${periodLabel}`,
+      notificationBody: 'Otwórz aplikację, by zobaczyć statystyki',
       notificationColor: '#c62828',
     };
   }
 
   try {
     await Location.startLocationUpdatesAsync(BACKGROUND_WALKING_TASK, options);
+    lastStartedPeriod = currentPeriod;
   } catch {
     /* User denied background, or location services off */
   }

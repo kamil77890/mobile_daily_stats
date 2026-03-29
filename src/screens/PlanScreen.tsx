@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Plus, Trash2 } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Flame, Plus, Trash2 } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -18,12 +18,33 @@ import type { RootStackParamList } from '../navigation/types';
 import { EXERCISE_TYPES } from '../store/types';
 import { useAppStore } from '../store/useAppStore';
 import { colors } from '../theme/colors';
+import { addDays, dayKey, parseDayKey } from '../utils/dates';
+import { kcalFromWalk } from '../utils/geo';
+
+const WEEKDAY_PL = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
+const MONTH_PL = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
+
+function formatDayLabel(dk: string): string {
+  const d = parseDayKey(dk);
+  return `${WEEKDAY_PL[d.getDay()]}, ${d.getDate()} ${MONTH_PL[d.getMonth()]}`;
+}
 
 export function PlanScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const parent = navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined;
 
+  // Day navigation state
+  const [selectedDay, setSelectedDay] = useState(() => dayKey());
+  const todayKey = dayKey();
+  const isToday = selectedDay === todayKey;
+
+  const navigateDay = (delta: number) => {
+    setSelectedDay((prev) => addDays(prev, delta));
+  };
+
+  const history = useAppStore((s) => s.history);
+  const sessions = useAppStore((s) => s.sessions);
   const customWorkouts = useAppStore((s) => s.customWorkouts);
   const addCustomWorkout = useAppStore((s) => s.addCustomWorkout);
   const updateCustomWorkout = useAppStore((s) => s.updateCustomWorkout);
@@ -33,6 +54,16 @@ export function PlanScreen() {
   const updateTask = useAppStore((s) => s.updateTask);
   const removeTask = useAppStore((s) => s.removeTask);
   const toggleTask = useAppStore((s) => s.toggleTask);
+
+  // Day summary data
+  const dayHistory = history[selectedDay];
+  const daySessions = useMemo(
+    () =>
+      [...sessions]
+        .filter((s) => s.dayKey === selectedDay)
+        .sort((a, b) => a.startedAt - b.startedAt),
+    [sessions, selectedDay],
+  );
 
   const [tplName, setTplName] = useState('');
   const [tplEx, setTplEx] = useState<string[]>(['Walking']);
@@ -56,7 +87,7 @@ export function PlanScreen() {
 
   const saveTemplate = () => {
     if (tplEx.length === 0) {
-      Alert.alert('Pick exercises', 'Select at least one exercise.');
+      Alert.alert('Wybierz ćwiczenia', 'Zaznacz co najmniej jedno.');
       return;
     }
     addCustomWorkout(tplName, tplEx);
@@ -75,10 +106,7 @@ export function PlanScreen() {
             const next = exercises.includes(e)
               ? exercises.filter((x) => x !== e)
               : [...exercises, e];
-            if (next.length === 0) {
-              Alert.alert('Need at least one');
-              return;
-            }
+            if (next.length === 0) { Alert.alert('Need at least one'); return; }
             updateCustomWorkout(id, name, next);
           },
         })),
@@ -117,18 +145,108 @@ export function PlanScreen() {
     setBlankTaskName('');
   };
 
+  const dayKm = (dayHistory?.distanceM ?? 0) / 1000;
+  const dayBurnKcal = kcalFromWalk(dayKm, dayHistory?.steps ?? 0);
+
   return (
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: 40 }]}
     >
       <Text style={styles.title}>Plan</Text>
-      <Text style={styles.sub}>Custom workouts and editable daily tasks</Text>
 
+      {/* ── Day navigation ───────────────────────────────────────── */}
+      <Card style={styles.dayNavCard}>
+        <View style={styles.dayNavRow}>
+          <TouchableOpacity style={styles.navBtn} onPress={() => navigateDay(-1)}>
+            <ChevronLeft color={colors.text} size={22} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setSelectedDay(todayKey)}>
+            <Text style={styles.dayLabel}>{formatDayLabel(selectedDay)}</Text>
+            {isToday && <Text style={styles.todayBadge}>● dzisiaj</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.navBtn, isToday && styles.navBtnDisabled]}
+            onPress={() => !isToday && navigateDay(1)}
+          >
+            <ChevronRight color={isToday ? colors.border : colors.text} size={22} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Day stats summary */}
+        {dayHistory ? (
+          <View style={styles.daySummaryRow}>
+            <View style={styles.dayStat}>
+              <Text style={styles.dayStatVal}>{dayHistory.steps.toLocaleString()}</Text>
+              <Text style={styles.dayStatLb}>kroków</Text>
+            </View>
+            <View style={styles.dayStatDivider} />
+            <View style={styles.dayStat}>
+              <Text style={styles.dayStatVal}>{dayKm.toFixed(2)}</Text>
+              <Text style={styles.dayStatLb}>km</Text>
+            </View>
+            <View style={styles.dayStatDivider} />
+            <View style={styles.dayStat}>
+              <Text style={styles.dayStatVal}>{dayBurnKcal}</Text>
+              <Text style={styles.dayStatLb}>kcal</Text>
+            </View>
+            <View style={styles.dayStatDivider} />
+            <View style={styles.dayStat}>
+              <Text style={styles.dayStatVal}>{Math.round(dayHistory.inclineM)}</Text>
+              <Text style={styles.dayStatLb}>m przewyżka</Text>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.noDataTxt}>Brak danych dla tego dnia</Text>
+        )}
+      </Card>
+
+      {/* ── Sessions for selected day ─────────────────────────────── */}
+      {daySessions.length > 0 && (
+        <>
+          <Text style={styles.sec}>Treningi — {formatDayLabel(selectedDay)}</Text>
+          {daySessions.map((s) => {
+            const km = s.distanceM / 1000;
+            const kcal = Math.round(km * 55);
+            return (
+              <TouchableOpacity
+                key={s.id}
+                style={styles.sessionCard}
+                onPress={() => parent?.navigate('SessionEdit', { sessionId: s.id })}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sessionType}>{s.exerciseName}</Text>
+                  <Text style={styles.sessionTime}>
+                    {new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {' – '}
+                    {new Date(s.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+                <View style={styles.sessionStats}>
+                  <View style={styles.sStat}>
+                    <Flame color={colors.accent} size={14} />
+                    <Text style={styles.sStatVal}>{kcal} kcal</Text>
+                  </View>
+                  <View style={styles.sStat}>
+                    <Clock color={colors.accent} size={14} />
+                    <Text style={styles.sStatVal}>
+                      {Math.floor(s.durationSec / 60)}m {s.durationSec % 60}s
+                    </Text>
+                  </View>
+                  <Text style={styles.sStatKm}>{km.toFixed(2)} km</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </>
+      )}
+
+      {/* ── Goal button ───────────────────────────────────────────── */}
       <TouchableOpacity style={styles.goalBtn} onPress={() => parent?.navigate('Goals')}>
         <Text style={styles.goalBtnTxt}>Daily goals (km & calories)</Text>
       </TouchableOpacity>
 
+      {/* ── Custom workout builder ────────────────────────────────── */}
       <Text style={styles.sec}>Build custom workout</Text>
       <Card>
         <Text style={styles.lb}>Name</Text>
@@ -178,13 +296,7 @@ export function PlanScreen() {
           <View style={styles.actions}>
             <TouchableOpacity
               style={styles.smallBtn}
-              onPress={() =>
-                pickExercisesForTemplate(
-                  w.id,
-                  (nameFor(w.id, w.name).trim() || w.name),
-                  w.exercises,
-                )
-              }
+              onPress={() => pickExercisesForTemplate(w.id, nameFor(w.id, w.name).trim() || w.name, w.exercises)}
             >
               <Text style={styles.smallBtnTxt}>Edit exercises</Text>
             </TouchableOpacity>
@@ -261,7 +373,55 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 16, gap: 10 },
   title: { color: colors.text, fontSize: 28, fontWeight: '800' },
-  sub: { color: colors.textMuted },
+  // Day navigation
+  dayNavCard: { gap: 0 },
+  dayNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  navBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.cardElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  navBtnDisabled: { opacity: 0.3 },
+  dayLabel: { color: colors.text, fontWeight: '800', fontSize: 16, textAlign: 'center' },
+  todayBadge: { color: colors.accent, fontSize: 11, fontWeight: '700', textAlign: 'center', marginTop: 2 },
+  daySummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  dayStat: { alignItems: 'center', flex: 1 },
+  dayStatVal: { color: colors.accent, fontWeight: '900', fontSize: 18 },
+  dayStatLb: { color: colors.textMuted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  dayStatDivider: { width: 1, height: 36, backgroundColor: colors.border },
+  noDataTxt: { color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
+  // Sessions
+  sessionCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 12,
+    alignItems: 'center',
+  },
+  sessionType: { color: colors.accent, fontWeight: '800', fontSize: 15 },
+  sessionTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
+  sessionStats: { alignItems: 'flex-end', gap: 4 },
+  sStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sStatVal: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  sStatKm: { color: colors.accent, fontSize: 14, fontWeight: '900' },
+  // Goal
   goalBtn: {
     backgroundColor: colors.cardElevated,
     padding: 14,

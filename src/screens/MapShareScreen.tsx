@@ -6,12 +6,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 
 import { useAppStore } from '../store/useAppStore';
+import type { Coord } from '../store/types';
 import { colors } from '../theme/colors';
 import { dayKey } from '../utils/dates';
 import { kcalFromWalk, regionForCoords } from '../utils/geo';
 import { findMovementPauses, formatPauseRange } from '../utils/pauseDetection';
 
 type Props = { navigation: { goBack: () => void } };
+
+/** Returns intermediate waypoints spaced at least `intervalMs` apart (excludes first/last) */
+function getRouteWaypoints(coords: Coord[], intervalMs = 15000): Coord[] {
+  if (coords.length < 3) return [];
+  const points: Coord[] = [];
+  let lastT = (coords[0].timestamp ?? 0) - 1;
+  for (let i = 1; i < coords.length - 1; i++) {
+    const t = coords[i].timestamp ?? 0;
+    if (t - lastT >= intervalMs) {
+      points.push(coords[i]);
+      lastT = t;
+    }
+  }
+  return points;
+}
 
 export function MapShareScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -59,6 +75,9 @@ export function MapShareScreen({ navigation }: Props) {
     return findMovementPauses(mergedCoords, daySessions[0].startedAt, daySessions[daySessions.length - 1].endedAt);
   }, [daySessions, mergedCoords]);
 
+  /** 15-second waypoint dots */
+  const waypoints = useMemo(() => getRouteWaypoints(mergedCoords, 15_000), [mergedCoords]);
+
   const share = async () => {
     try {
       const uri = await captureRef(shotRef, {
@@ -101,6 +120,17 @@ export function MapShareScreen({ navigation }: Props) {
                     strokeWidth={5}
                     lineJoin="round"
                   />
+                ))}
+                {/* 15-second waypoint dots */}
+                {waypoints.map((wp, idx) => (
+                  <Marker
+                    key={`wp-${idx}`}
+                    coordinate={wp}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <View style={styles.waypointDot} />
+                  </Marker>
                 ))}
                 {startEnd ? (
                   <>
@@ -179,6 +209,14 @@ const styles = StyleSheet.create({
   mapBox: { height: 280, backgroundColor: colors.card },
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
   fallbackTxt: { color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
+  waypointDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.routeLine,
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
   sheetScroll: { maxHeight: 220 },
   sheet: {
     backgroundColor: colors.card,

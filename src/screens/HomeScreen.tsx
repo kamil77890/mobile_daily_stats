@@ -1,9 +1,9 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Settings2 } from 'lucide-react-native';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../components/Card';
@@ -11,12 +11,37 @@ import { DonutGoal } from '../components/DonutGoal';
 import { WeeklyBars } from '../components/WeeklyBars';
 import type { RootStackParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
+import type { Coord } from '../store/types';
 import { colors } from '../theme/colors';
 import { dayKey, lastNDayKeys, parseDayKey } from '../utils/dates';
-import { kcalFromWalk, regionForCoords } from '../utils/geo';
+import { haversineM, kcalFromWalk, pathLengthM, regionForCoords } from '../utils/geo';
 import { findMovementPauses, formatPauseRange } from '../utils/pauseDetection';
 
 const WD = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+/** Returns intermediate waypoints spaced at least `intervalMs` apart (excludes first/last) */
+function getRouteWaypoints(coords: Coord[], intervalMs = 15000): Coord[] {
+  if (coords.length < 3) return [];
+  const points: Coord[] = [];
+  let lastT = (coords[0].timestamp ?? 0) - 1;
+  for (let i = 1; i < coords.length - 1; i++) {
+    const t = coords[i].timestamp ?? 0;
+    if (t - lastT >= intervalMs) {
+      points.push(coords[i]);
+      lastT = t;
+    }
+  }
+  return points;
+}
+
+/** Compute activity status from recent coords (last 60s window) */
+function computeActivityStatus(coords: Coord[]): 'walking' | 'sitting' {
+  const now = Date.now();
+  const recent = coords.filter((c) => c.timestamp != null && now - c.timestamp! < 60_000);
+  if (recent.length < 2) return 'sitting';
+  const dist = pathLengthM(recent);
+  return dist > 15 ? 'walking' : 'sitting';
+}
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -61,8 +86,29 @@ export function HomeScreen() {
     return findMovementPauses(mergedCoords, t0, t1);
   }, [daySessions, mergedCoords]);
 
+  /** Route waypoints every 15 seconds for dot display */
+  const waypoints = useMemo(() => getRouteWaypoints(mergedCoords, 15_000), [mergedCoords]);
+
+  /** Activity status updated every 30 seconds */
+  const [activityStatus, setActivityStatus] = useState<'walking' | 'sitting'>('sitting');
+  const mergedCoordsRef = useRef(mergedCoords);
+  mergedCoordsRef.current = mergedCoords;
+
+  useEffect(() => {
+    const check = () => setActivityStatus(computeActivityStatus(mergedCoordsRef.current));
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Re-run check when coords change (new GPS points come in)
+  useEffect(() => {
+    setActivityStatus(computeActivityStatus(mergedCoords));
+  }, [mergedCoords]);
+
   const weekKeys = useMemo(() => lastNDayKeys(7), []);
   const weekKm = weekKeys.map((k) => (history[k]?.distanceM ?? 0) / 1000);
+  const weekSteps = weekKeys.map((k) => history[k]?.steps ?? 0);
   const weekLabels = weekKeys.map((k) => WD[parseDayKey(k).getDay()]);
   const maxWeek = Math.max(...weekKm, dailyGoalKm);
 
@@ -72,6 +118,10 @@ export function HomeScreen() {
   const remainingCal = Math.max(0, dailyGoalCalories - burnKcal);
 
   const hasRoute = mergedCoords.length > 1;
+
+  const activityColor = activityStatus === 'walking' ? colors.accent : colors.textMuted;
+  const activityIcon = activityStatus === 'walking' ? '🚶' : '💺';
+  const activityLabel = activityStatus === 'walking' ? 'Idzie' : 'Siedzi';
 
   return (
     <ScrollView
@@ -83,16 +133,31 @@ export function HomeScreen() {
           <Text style={styles.title}>Summary</Text>
           <Text style={styles.muted}>Today's movement</Text>
         </View>
-        <TouchableOpacity style={styles.gear} onPress={() => parent?.navigate('Goals')}>
-          <Settings2 color={colors.accent} size={22} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {/* Activity status pill */}
+          <View style={[styles.activityPill, { borderColor: activityColor }]}>
+            <Text style={styles.activityIcon}>{activityIcon}</Text>
+            <Text style={[styles.activityLabel, { color: activityColor }]}>{activityLabel}</Text>
+          </View>
+          <TouchableOpacity style={styles.gear} onPress={() => parent?.navigate('Goals')}>
+            <Settings2 color={colors.accent} size={22} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <TouchableOpacity activeOpacity={0.9} onPress={() => parent?.navigate('MapShare')}>
         <Card style={styles.mapCard}>
           <View style={styles.mapWrap}>
             {hasRoute ? (
-              <MapView style={StyleSheet.absoluteFill} initialRegion={mapRegion} scrollEnabled={false} zoomEnabled={false} pitchEnabled={false} rotateEnabled={false} mapType="standard">
+              <MapView
+                style={StyleSheet.absoluteFill}
+                initialRegion={mapRegion}
+                scrollEnabled={false}
+                zoomEnabled={false}
+                pitchEnabled={false}
+                rotateEnabled={false}
+                mapType="standard"
+              >
                 {daySessions.map((s) => (
                   <Polyline
                     key={s.id}
@@ -101,6 +166,17 @@ export function HomeScreen() {
                     strokeWidth={5}
                     lineJoin="round"
                   />
+                ))}
+                {/* 15-second waypoint dots */}
+                {waypoints.map((wp, idx) => (
+                  <Marker
+                    key={`wp-${idx}`}
+                    coordinate={wp}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <View style={styles.waypointDot} />
+                  </Marker>
                 ))}
                 {startEnd ? (
                   <>
@@ -162,7 +238,13 @@ export function HomeScreen() {
           <Text style={styles.cardTitle}>Weekly distance</Text>
           <Text style={styles.muted}>LAST 7 DAYS</Text>
         </View>
-        <WeeklyBars labels={weekLabels} values={weekKm} goalKm={dailyGoalKm} maxVal={maxWeek} />
+        <WeeklyBars
+          labels={weekLabels}
+          values={weekKm}
+          steps={weekSteps}
+          goalKm={dailyGoalKm}
+          maxVal={maxWeek}
+        />
       </Card>
     </ScrollView>
   );
@@ -172,6 +254,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.bg },
   content: { paddingBottom: 32, paddingHorizontal: 16, gap: 14 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { color: colors.text, fontSize: 28, fontWeight: '800' },
   muted: { color: colors.textMuted, marginTop: 4, fontSize: 13 },
   muted2: { color: colors.textMuted, fontSize: 11, marginTop: 10, fontWeight: '700' },
@@ -185,6 +268,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  activityPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    backgroundColor: colors.cardElevated,
+    gap: 4,
+  },
+  activityIcon: { fontSize: 14 },
+  activityLabel: { fontSize: 12, fontWeight: '800' },
   mapCard: { padding: 0, overflow: 'hidden' },
   mapWrap: { height: 180, width: '100%', backgroundColor: colors.bg },
   mapEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
@@ -193,6 +288,14 @@ const styles = StyleSheet.create({
   statLine: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   statVal: { color: colors.accent },
   mapHint: { color: colors.accent, fontSize: 12, marginTop: 8, fontWeight: '700' },
+  waypointDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.routeLine,
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
   pauseTitle: { color: colors.text, fontWeight: '800', marginBottom: 8, fontSize: 15 },
   pauseRow: { color: colors.textMuted, marginBottom: 4, fontSize: 13 },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },

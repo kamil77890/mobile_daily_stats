@@ -4,17 +4,19 @@ import { colors } from '../theme/colors';
 
 type Props = {
   labels: string[];
-  values: number[];
+  values: number[]; // km per day
+  steps: number[];  // steps per day
   goalKm: number;
   maxVal: number;
 };
 
-export function WeeklyBars({ labels, values, goalKm, maxVal }: Props) {
+export function WeeklyBars({ labels, values, steps, goalKm, maxVal }: Props) {
   const cap = Math.max(maxVal, goalKm, 0.001);
   return (
     <View style={styles.row}>
       {labels.map((lb, i) => {
         const v = values[i] ?? 0;
+        const s = steps[i] ?? 0;
         const h = Math.min(1, v / cap);
         const met = v >= goalKm - 1e-6;
         return (
@@ -24,6 +26,13 @@ export function WeeklyBars({ labels, values, goalKm, maxVal }: Props) {
               <View style={[styles.barFill, { height: Math.max(4, Math.round(96 * h)) }]} />
             </View>
             <Text style={styles.lb}>{lb}</Text>
+            {s > 0 ? (
+              <Text style={styles.steps}>
+                {s >= 1000 ? `${(s / 1000).toFixed(1)}k` : `${s}`}
+              </Text>
+            ) : (
+              <View style={styles.stepsSpacer} />
+            )}
           </View>
         );
       })}
@@ -70,4 +79,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: '600',
   },
+  steps: {
+    color: colors.accent,
+    fontSize: 9,
+    marginTop: 2,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  stepsSpacer: { height: 13 },
 });
