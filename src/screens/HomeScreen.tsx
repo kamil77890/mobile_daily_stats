@@ -1,26 +1,27 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Settings2 } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Circle, Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '../components/Card';
 import { DonutGoal } from '../components/DonutGoal';
 import { WeeklyBars } from '../components/WeeklyBars';
+import { useActivityStatus } from '../hooks/useActivityStatus';
 import type { RootStackParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
 import type { Coord } from '../store/types';
 import { colors } from '../theme/colors';
 import { dayKey, lastNDayKeys, parseDayKey } from '../utils/dates';
-import { haversineM, kcalFromWalk, pathLengthM, regionForCoords } from '../utils/geo';
+import { kcalFromWalk, regionForCoords } from '../utils/geo';
 import { findMovementPauses, formatPauseRange } from '../utils/pauseDetection';
 
 const WD = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-/** Returns intermediate waypoints spaced at least `intervalMs` apart (excludes first/last) */
-function getRouteWaypoints(coords: Coord[], intervalMs = 15000): Coord[] {
+/** Returns intermediate waypoints spaced at least `intervalMs` apart */
+function getRouteWaypoints(coords: Coord[], intervalMs = 15_000): Coord[] {
   if (coords.length < 3) return [];
   const points: Coord[] = [];
   let lastT = (coords[0].timestamp ?? 0) - 1;
@@ -34,15 +35,6 @@ function getRouteWaypoints(coords: Coord[], intervalMs = 15000): Coord[] {
   return points;
 }
 
-/** Compute activity status from recent coords (last 60s window) */
-function computeActivityStatus(coords: Coord[]): 'walking' | 'sitting' {
-  const now = Date.now();
-  const recent = coords.filter((c) => c.timestamp != null && now - c.timestamp! < 60_000);
-  if (recent.length < 2) return 'sitting';
-  const dist = pathLengthM(recent);
-  return dist > 15 ? 'walking' : 'sitting';
-}
-
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -52,6 +44,9 @@ export function HomeScreen() {
   const sessions = useAppStore((s) => s.sessions);
   const dailyGoalKm = useAppStore((s) => s.dailyGoalKm);
   const dailyGoalCalories = useAppStore((s) => s.dailyGoalCalories);
+
+  // Real-time activity status (updates every 10s + on session change)
+  const activityStatus = useActivityStatus();
 
   const today = history[dk] ?? {
     steps: 0,
@@ -67,7 +62,6 @@ export function HomeScreen() {
   );
 
   const mergedCoords = useMemo(() => daySessions.flatMap((s) => s.coords), [daySessions]);
-
   const mapRegion = useMemo(() => regionForCoords(mergedCoords), [mergedCoords]);
 
   const startEnd = useMemo(() => {
@@ -86,25 +80,8 @@ export function HomeScreen() {
     return findMovementPauses(mergedCoords, t0, t1);
   }, [daySessions, mergedCoords]);
 
-  /** Route waypoints every 15 seconds for dot display */
+  /** 15-second waypoint dots on map */
   const waypoints = useMemo(() => getRouteWaypoints(mergedCoords, 15_000), [mergedCoords]);
-
-  /** Activity status updated every 30 seconds */
-  const [activityStatus, setActivityStatus] = useState<'walking' | 'sitting'>('sitting');
-  const mergedCoordsRef = useRef(mergedCoords);
-  mergedCoordsRef.current = mergedCoords;
-
-  useEffect(() => {
-    const check = () => setActivityStatus(computeActivityStatus(mergedCoordsRef.current));
-    check();
-    const id = setInterval(check, 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Re-run check when coords change (new GPS points come in)
-  useEffect(() => {
-    setActivityStatus(computeActivityStatus(mergedCoords));
-  }, [mergedCoords]);
 
   const weekKeys = useMemo(() => lastNDayKeys(7), []);
   const weekKm = weekKeys.map((k) => (history[k]?.distanceM ?? 0) / 1000);
@@ -116,25 +93,32 @@ export function HomeScreen() {
   const calProgress = Math.min(1, kcalFromWalk(todayKm, today.steps) / Math.max(dailyGoalCalories, 1));
   const burnKcal = kcalFromWalk(todayKm, today.steps);
   const remainingCal = Math.max(0, dailyGoalCalories - burnKcal);
-
   const hasRoute = mergedCoords.length > 1;
 
-  const activityColor = activityStatus === 'walking' ? colors.accent : colors.textMuted;
-  const activityIcon = activityStatus === 'walking' ? '🚶' : '💺';
-  const activityLabel = activityStatus === 'walking' ? 'Idzie' : 'Siedzi';
+  const activityColor =
+    activityStatus === 'walking'
+      ? colors.accent
+      : activityStatus === 'sitting'
+        ? colors.textMuted
+        : colors.border;
+  const activityIcon =
+    activityStatus === 'walking' ? '🚶' : activityStatus === 'sitting' ? '💺' : '📡';
+  const activityLabel =
+    activityStatus === 'walking' ? 'Walking' : activityStatus === 'sitting' ? 'Sitting' : 'No signal';
 
   return (
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}
     >
+      {/* ── Header ── */}
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Summary</Text>
           <Text style={styles.muted}>Today's movement</Text>
         </View>
         <View style={styles.headerRight}>
-          {/* Activity status pill */}
+          {/* Real-time activity pill — updates every 10s */}
           <View style={[styles.activityPill, { borderColor: activityColor }]}>
             <Text style={styles.activityIcon}>{activityIcon}</Text>
             <Text style={[styles.activityLabel, { color: activityColor }]}>{activityLabel}</Text>
@@ -145,6 +129,7 @@ export function HomeScreen() {
         </View>
       </View>
 
+      {/* ── Map card ── */}
       <TouchableOpacity activeOpacity={0.9} onPress={() => parent?.navigate('MapShare')}>
         <Card style={styles.mapCard}>
           <View style={styles.mapWrap}>
@@ -167,7 +152,6 @@ export function HomeScreen() {
                     lineJoin="round"
                   />
                 ))}
-                {/* 15-second waypoint dots */}
                 {waypoints.map((wp, idx) => (
                   <Marker
                     key={`wp-${idx}`}
@@ -206,6 +190,7 @@ export function HomeScreen() {
         </Card>
       </TouchableOpacity>
 
+      {/* ── Pauses ── */}
       {pauses.length > 0 ? (
         <Card>
           <Text style={styles.pauseTitle}>Stops today (slow / still)</Text>
@@ -217,9 +202,10 @@ export function HomeScreen() {
         </Card>
       ) : null}
 
+      {/* ── Goals & donut ── */}
       <Card style={styles.rowCard}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.muted2}>GOALS (KM)</Text>
+          <Text style={styles.muted2}>GOAL (KM)</Text>
           <Text style={styles.rowBig}>{dailyGoalKm.toFixed(1)}</Text>
           <Text style={styles.muted2}>BURNED (EST.)</Text>
           <Text style={styles.rowBig}>{burnKcal}</Text>
@@ -233,6 +219,7 @@ export function HomeScreen() {
         />
       </Card>
 
+      {/* ── Weekly bars with steps ── */}
       <Card>
         <View style={styles.weekHead}>
           <Text style={styles.cardTitle}>Weekly distance</Text>
@@ -276,7 +263,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1.5,
     backgroundColor: colors.cardElevated,
-    gap: 4,
+    gap: 5,
   },
   activityIcon: { fontSize: 14 },
   activityLabel: { fontSize: 12, fontWeight: '800' },

@@ -40,3 +40,5 @@ export const EXERCISE_TYPES = [
   'Elliptical',
   'Other',
 ] as const;
+
+

@@ -121,7 +121,6 @@ export function MapShareScreen({ navigation }: Props) {
                     lineJoin="round"
                   />
                 ))}
-                {/* 15-second waypoint dots */}
                 {waypoints.map((wp, idx) => (
                   <Marker
                     key={`wp-${idx}`}

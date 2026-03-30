@@ -2,7 +2,7 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { Activity, BarChart2, Home, ListChecks } from 'lucide-react-native';
+import { Activity, BarChart2, Clock, Home, ListChecks } from 'lucide-react-native';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -18,6 +18,7 @@ import {
   refreshWalkingStatsNotificationFromStore,
 } from './src/notifications/walkingStatsNotification';
 import type { MainTabParamList, RootStackParamList } from './src/navigation/types';
+import { DailyTimelineScreen } from './src/screens/DailyTimelineScreen';
 import { GoalsScreen } from './src/screens/GoalsScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MapShareScreen } from './src/screens/MapShareScreen';
@@ -55,6 +56,7 @@ function MainTabs() {
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textMuted,
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
       }}
     >
       <Tab.Screen
@@ -69,6 +71,7 @@ function MainTabs() {
         name="Track"
         component={TrackScreen}
         options={{
+          tabBarLabel: 'Track',
           tabBarIcon: ({ color, size }) => <Activity color={color} size={size} />,
         }}
       />
@@ -76,13 +79,23 @@ function MainTabs() {
         name="Stats"
         component={StatsScreen}
         options={{
+          tabBarLabel: 'Stats',
           tabBarIcon: ({ color, size }) => <BarChart2 color={color} size={size} />,
+        }}
+      />
+      <Tab.Screen
+        name="Timeline"
+        component={DailyTimelineScreen}
+        options={{
+          tabBarLabel: 'Timeline',
+          tabBarIcon: ({ color, size }) => <Clock color={color} size={size} />,
         }}
       />
       <Tab.Screen
         name="Plan"
         component={PlanScreen}
         options={{
+          tabBarLabel: 'Plan',
           tabBarIcon: ({ color, size }) => <ListChecks color={color} size={size} />,
         }}
       />
@@ -124,7 +137,6 @@ export default function App() {
     void refreshWalkingStatsNotificationFromStore();
   }, [statsTick]);
 
-  // Refresh notification every 5 seconds when app is open
   useEffect(() => {
     const interval = setInterval(() => {
       void refreshWalkingStatsNotificationFromStore();
@@ -132,7 +144,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Initial app load ──────────────────────────────────────────────
+  // ── Initial hydration ─────────────────────────────────────────────
   useEffect(() => {
     const runDaily = () => {
       const key = dayKey();
@@ -148,6 +160,7 @@ export default function App() {
     return unsub;
   }, []);
 
+  // ── App foreground transitions ────────────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
@@ -159,9 +172,7 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  // ── Sync background data every 30 seconds while app is open ───────
-  // Also acts as the "activity status refresh" trigger (HomeScreen
-  // derives activity from the latest coords pulled in each sync).
+  // ── Sync GPS data every 30 seconds (feeds activity status hook) ───
   useEffect(() => {
     const id = setInterval(() => {
       void syncBackgroundWalkingSessionsFromStorage();
@@ -169,9 +180,8 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // ── Check every 5 minutes if day/night period changed → restart
-  //    background service with the correct time interval ─────────────
-  //    Day (6-23): 1 min interval   Night (23-6): 10 min interval
+  // ── Restart background service when day/night period changes ──────
+  //    Day 06-23 → 1-min interval   Night 23-06 → 10-min interval
   useEffect(() => {
     const id = setInterval(() => {
       void restartBackgroundWalkingIfPeriodChanged();
