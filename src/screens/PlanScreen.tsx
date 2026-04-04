@@ -17,7 +17,7 @@ import { Card } from '../components/Card';
 import type { RootStackParamList } from '../navigation/types';
 import { EXERCISE_TYPES } from '../store/types';
 import { useAppStore } from '../store/useAppStore';
-import { colors } from '../theme/colors';
+import { useThemeColors } from '../theme/ThemeContext';
 import { addDays, dayKey, parseDayKey } from '../utils/dates';
 import { kcalFromWalk } from '../utils/geo';
 
@@ -30,6 +30,7 @@ function formatDayLabel(dk: string): string {
 }
 
 export function PlanScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const parent = navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined;
@@ -148,25 +149,77 @@ export function PlanScreen() {
   const dayKm = (dayHistory?.distanceM ?? 0) / 1000;
   const dayBurnKcal = kcalFromWalk(dayKm, dayHistory?.steps ?? 0);
 
+  const styles = StyleSheet.create({
+    scroll: { flex: 1 },
+    content: { paddingHorizontal: 16, gap: 10 },
+    title: { fontSize: 28, fontWeight: '800' },
+    dayNavCard: { gap: 0 },
+    dayNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+    navBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+    navBtnDisabled: { opacity: 0.3 },
+    dayLabel: { fontWeight: '800', fontSize: 16, textAlign: 'center' },
+    todayBadge: { fontSize: 11, fontWeight: '700', textAlign: 'center', marginTop: 2 },
+    daySummaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+    dayStat: { alignItems: 'center', flex: 1 },
+    dayStatVal: { fontWeight: '900', fontSize: 18 },
+    dayStatLb: { fontSize: 10, fontWeight: '700', marginTop: 2 },
+    dayStatDivider: { width: 1, height: 36 },
+    noDataTxt: { textAlign: 'center', paddingVertical: 8 },
+    sessionCard: { flexDirection: 'row', borderRadius: 16, padding: 14, borderWidth: 1, gap: 12, alignItems: 'center' },
+    sessionType: { fontWeight: '800', fontSize: 15 },
+    sessionTime: { fontSize: 12, marginTop: 4 },
+    sessionStats: { alignItems: 'flex-end', gap: 4 },
+    sStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    sStatVal: { fontSize: 12, fontWeight: '700' },
+    sStatKm: { fontSize: 14, fontWeight: '900' },
+    goalBtn: { padding: 14, borderRadius: 16, borderWidth: 1 },
+    goalBtnTxt: { fontWeight: '800', textAlign: 'center' },
+    sec: { fontWeight: '800', fontSize: 16, marginTop: 8 },
+    lb: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
+    input: { borderRadius: 12, padding: 12, borderWidth: 1 },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, marginBottom: 12 },
+    chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
+    chipOn: {},
+    chipTxt: { fontWeight: '700', fontSize: 12 },
+    chipTxtOn: {},
+    addBig: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 999 },
+    addBigTxt: { fontWeight: '900' },
+    rowCard: { gap: 10 },
+    wEx: { marginTop: 6, fontSize: 13 },
+    actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+    smallBtn: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
+    smallBtnTxt: { fontWeight: '800', fontSize: 12 },
+    task: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+    taskName: { fontWeight: '800', marginTop: 8 },
+    done: { textDecorationLine: 'line-through' },
+    taskEx: { marginTop: 4, fontSize: 13 },
+    taskActions: { alignItems: 'flex-end', gap: 8 },
+    link: { fontWeight: '800' },
+    empty: {},
+    ghost: { marginTop: 10, padding: 14, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
+    ghostTxt: { fontWeight: '800', textAlign: 'center' },
+  });
+
   return (
     <ScrollView
-      style={styles.scroll}
+      showsVerticalScrollIndicator={false}
+      style={[styles.scroll, { backgroundColor: colors.bg }]}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: 40 }]}
     >
-      <Text style={styles.title}>Plan</Text>
+      <Text style={[styles.title, { color: colors.text }]}>Plan</Text>
 
       {/* ── Day navigation ───────────────────────────────────────── */}
       <Card style={styles.dayNavCard}>
         <View style={styles.dayNavRow}>
-          <TouchableOpacity style={styles.navBtn} onPress={() => navigateDay(-1)}>
+          <TouchableOpacity style={[styles.navBtn, { backgroundColor: colors.cardElevated, borderColor: colors.border }]} onPress={() => navigateDay(-1)}>
             <ChevronLeft color={colors.text} size={22} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setSelectedDay(todayKey)}>
-            <Text style={styles.dayLabel}>{formatDayLabel(selectedDay)}</Text>
-            {isToday && <Text style={styles.todayBadge}>● dzisiaj</Text>}
+            <Text style={[styles.dayLabel, { color: colors.text }]}>{formatDayLabel(selectedDay)}</Text>
+            {isToday && <Text style={[styles.todayBadge, { color: colors.accent }]}>● dzisiaj</Text>}
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.navBtn, isToday && styles.navBtnDisabled]}
+            style={[styles.navBtn, { backgroundColor: colors.cardElevated, borderColor: colors.border }, isToday && styles.navBtnDisabled]}
             onPress={() => !isToday && navigateDay(1)}
           >
             <ChevronRight color={isToday ? colors.border : colors.text} size={22} />
@@ -177,46 +230,46 @@ export function PlanScreen() {
         {dayHistory ? (
           <View style={styles.daySummaryRow}>
             <View style={styles.dayStat}>
-              <Text style={styles.dayStatVal}>{dayHistory.steps.toLocaleString()}</Text>
-              <Text style={styles.dayStatLb}>kroków</Text>
+              <Text style={[styles.dayStatVal, { color: colors.accent }]}>{dayHistory.steps.toLocaleString()}</Text>
+              <Text style={[styles.dayStatLb, { color: colors.textMuted }]}>kroków</Text>
             </View>
             <View style={styles.dayStatDivider} />
             <View style={styles.dayStat}>
-              <Text style={styles.dayStatVal}>{dayKm.toFixed(2)}</Text>
-              <Text style={styles.dayStatLb}>km</Text>
+              <Text style={[styles.dayStatVal, { color: colors.accent }]}>{dayKm.toFixed(2)}</Text>
+              <Text style={[styles.dayStatLb, { color: colors.textMuted }]}>km</Text>
             </View>
             <View style={styles.dayStatDivider} />
             <View style={styles.dayStat}>
-              <Text style={styles.dayStatVal}>{dayBurnKcal}</Text>
-              <Text style={styles.dayStatLb}>kcal</Text>
+              <Text style={[styles.dayStatVal, { color: colors.accent }]}>{dayBurnKcal}</Text>
+              <Text style={[styles.dayStatLb, { color: colors.textMuted }]}>kcal</Text>
             </View>
             <View style={styles.dayStatDivider} />
             <View style={styles.dayStat}>
-              <Text style={styles.dayStatVal}>{Math.round(dayHistory.inclineM)}</Text>
-              <Text style={styles.dayStatLb}>m przewyżka</Text>
+              <Text style={[styles.dayStatVal, { color: colors.accent }]}>{Math.round(dayHistory.inclineM)}</Text>
+              <Text style={[styles.dayStatLb, { color: colors.textMuted }]}>m przewyżka</Text>
             </View>
           </View>
         ) : (
-          <Text style={styles.noDataTxt}>Brak danych dla tego dnia</Text>
+          <Text style={[styles.noDataTxt, { color: colors.textMuted }]}>Brak danych dla tego dnia</Text>
         )}
       </Card>
 
       {/* ── Sessions for selected day ─────────────────────────────── */}
       {daySessions.length > 0 && (
         <>
-          <Text style={styles.sec}>Treningi — {formatDayLabel(selectedDay)}</Text>
+          <Text style={[styles.sec, { color: colors.text }]}>Treningi — {formatDayLabel(selectedDay)}</Text>
           {daySessions.map((s) => {
             const km = s.distanceM / 1000;
             const kcal = Math.round(km * 55);
             return (
               <TouchableOpacity
                 key={s.id}
-                style={styles.sessionCard}
+                style={[styles.sessionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
                 onPress={() => parent?.navigate('SessionEdit', { sessionId: s.id })}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.sessionType}>{s.exerciseName}</Text>
-                  <Text style={styles.sessionTime}>
+                  <Text style={[styles.sessionType, { color: colors.accent }]}>{s.exerciseName}</Text>
+                  <Text style={[styles.sessionTime, { color: colors.textMuted }]}>
                     {new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {' – '}
                     {new Date(s.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -233,7 +286,7 @@ export function PlanScreen() {
                       {Math.floor(s.durationSec / 60)}m {s.durationSec % 60}s
                     </Text>
                   </View>
-                  <Text style={styles.sStatKm}>{km.toFixed(2)} km</Text>
+                  <Text style={[styles.sStatKm, { color: colors.accent }]}>{km.toFixed(2)} km</Text>
                 </View>
               </TouchableOpacity>
             );
@@ -242,46 +295,46 @@ export function PlanScreen() {
       )}
 
       {/* ── Goal button ───────────────────────────────────────────── */}
-      <TouchableOpacity style={styles.goalBtn} onPress={() => parent?.navigate('Goals')}>
-        <Text style={styles.goalBtnTxt}>Daily goals (km & calories)</Text>
+      <TouchableOpacity style={[styles.goalBtn, { backgroundColor: colors.cardElevated, borderColor: colors.accent }]} onPress={() => parent?.navigate('Goals')}>
+        <Text style={[styles.goalBtnTxt, { color: colors.accent }]}>Daily goals (km & calories)</Text>
       </TouchableOpacity>
 
       {/* ── Custom workout builder ────────────────────────────────── */}
-      <Text style={styles.sec}>Build custom workout</Text>
+      <Text style={[styles.sec, { color: colors.text }]}>Build custom workout</Text>
       <Card>
-        <Text style={styles.lb}>Name</Text>
+        <Text style={[styles.lb, { color: colors.textMuted }]}>Name</Text>
         <TextInput
           value={tplName}
           onChangeText={setTplName}
           placeholder="Morning loop"
           placeholderTextColor={colors.textMuted}
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
         />
-        <Text style={styles.lb}>Exercises</Text>
+        <Text style={[styles.lb, { color: colors.textMuted }]}>Exercises</Text>
         <View style={styles.chips}>
           {EXERCISE_TYPES.map((e) => {
             const on = tplEx.includes(e);
             return (
               <TouchableOpacity
                 key={e}
-                style={[styles.chip, on && styles.chipOn]}
+                style={[styles.chip, { backgroundColor: colors.bg, borderColor: colors.border }, on && { borderColor: colors.accent, backgroundColor: colors.cardElevated }]}
                 onPress={() => toggleTplExercise(e)}
               >
-                <Text style={[styles.chipTxt, on && styles.chipTxtOn]}>{e}</Text>
+                <Text style={[styles.chipTxt, { color: colors.textMuted }, on && { color: colors.accent }]}>{e}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
-        <TouchableOpacity style={styles.addBig} onPress={saveTemplate}>
+        <TouchableOpacity style={[styles.addBig, { backgroundColor: colors.accent }]} onPress={saveTemplate}>
           <Plus color={colors.bg} size={20} />
-          <Text style={styles.addBigTxt}>Save workout template</Text>
+          <Text style={[styles.addBigTxt, { color: colors.bg }]}>Save workout template</Text>
         </TouchableOpacity>
       </Card>
 
-      <Text style={styles.sec}>Your templates</Text>
+      <Text style={[styles.sec, { color: colors.text }]}>Your templates</Text>
       {customWorkouts.map((w) => (
         <Card key={w.id} style={styles.rowCard}>
-          <Text style={styles.lb}>Name</Text>
+          <Text style={[styles.lb, { color: colors.textMuted }]}>Name</Text>
           <TextInput
             value={nameFor(w.id, w.name)}
             onChangeText={(t) => setDrafts((d) => ({ ...d, [w.id]: t }))}
@@ -289,22 +342,22 @@ export function PlanScreen() {
               const v = nameFor(w.id, w.name).trim() || w.name;
               updateCustomWorkout(w.id, v, w.exercises);
             }}
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
             placeholderTextColor={colors.textMuted}
           />
-          <Text style={styles.wEx}>{w.exercises.join(' · ')}</Text>
+          <Text style={[styles.wEx, { color: colors.textMuted }]}>{w.exercises.join(' · ')}</Text>
           <View style={styles.actions}>
             <TouchableOpacity
-              style={styles.smallBtn}
+              style={[styles.smallBtn, { backgroundColor: colors.bg, borderColor: colors.border }]}
               onPress={() => pickExercisesForTemplate(w.id, nameFor(w.id, w.name).trim() || w.name, w.exercises)}
             >
-              <Text style={styles.smallBtnTxt}>Edit exercises</Text>
+              <Text style={[styles.smallBtnTxt, { color: colors.accent }]}>Edit exercises</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.smallBtn}
+              style={[styles.smallBtn, { backgroundColor: colors.bg, borderColor: colors.border }]}
               onPress={() => addTaskFromTemplate(nameFor(w.id, w.name) || w.name, w.exercises)}
             >
-              <Text style={styles.smallBtnTxt}>Add task</Text>
+              <Text style={[styles.smallBtnTxt, { color: colors.accent }]}>Add task</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => removeCustomWorkout(w.id)}>
               <Trash2 color={colors.textMuted} size={20} />
@@ -313,16 +366,16 @@ export function PlanScreen() {
         </Card>
       ))}
 
-      <Text style={styles.sec}>Today's tasks (tap to complete)</Text>
+      <Text style={[styles.sec, { color: colors.text }]}>Today's tasks (tap to complete)</Text>
       {tasks.length === 0 ? (
-        <Text style={styles.empty}>Add a task from a template or create below.</Text>
+        <Text style={[styles.empty, { color: colors.textMuted }]}>Add a task from a template or create below.</Text>
       ) : null}
       {tasks.map((t) => {
         const k = `task-${t.id}`;
         return (
           <Card key={t.id} style={styles.task}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.lb}>Name</Text>
+              <Text style={[styles.lb, { color: colors.textMuted }]}>Name</Text>
               <TextInput
                 value={nameFor(k, t.name)}
                 onChangeText={(text) => setDrafts((d) => ({ ...d, [k]: text }))}
@@ -330,19 +383,19 @@ export function PlanScreen() {
                   const v = nameFor(k, t.name).trim() || t.name;
                   updateTask(t.id, { name: v });
                 }}
-                style={styles.input}
+                style={[styles.input, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
                 placeholderTextColor={colors.textMuted}
               />
               <TouchableOpacity onPress={() => toggleTask(t.id)}>
-                <Text style={[styles.taskName, t.completed && styles.done]}>
+                <Text style={[styles.taskName, { color: colors.accent }, t.completed && { textDecorationLine: 'line-through', color: colors.textMuted }]}>
                   {t.completed ? 'Completed — tap to undo' : 'Tap here when done'}
                 </Text>
               </TouchableOpacity>
-              <Text style={styles.taskEx}>{t.exercises.join(' · ')}</Text>
+              <Text style={[styles.taskEx, { color: colors.textMuted }]}>{t.exercises.join(' · ')}</Text>
             </View>
             <View style={styles.taskActions}>
               <TouchableOpacity onPress={() => pickTaskExercises(t.id, t.name, t.exercises)}>
-                <Text style={styles.link}>Exercises</Text>
+                <Text style={[styles.link, { color: colors.accent }]}>Exercises</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => removeTask(t.id)}>
                 <Trash2 color={colors.textMuted} size={18} />
@@ -353,141 +406,18 @@ export function PlanScreen() {
       })}
 
       <Card>
-        <Text style={styles.lb}>Blank task</Text>
+        <Text style={[styles.lb, { color: colors.textMuted }]}>Blank task</Text>
         <TextInput
           value={blankTaskName}
           onChangeText={setBlankTaskName}
           placeholder="Task name"
           placeholderTextColor={colors.textMuted}
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
         />
-        <TouchableOpacity style={styles.ghost} onPress={saveBlankTask}>
-          <Text style={styles.ghostTxt}>Add (starts as Walking — edit exercises after)</Text>
+        <TouchableOpacity style={[styles.ghost, { borderColor: colors.border }]} onPress={saveBlankTask}>
+          <Text style={[styles.ghostTxt, { color: colors.accent }]}>Add (starts as Walking — edit exercises after)</Text>
         </TouchableOpacity>
       </Card>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: 16, gap: 10 },
-  title: { color: colors.text, fontSize: 28, fontWeight: '800' },
-  // Day navigation
-  dayNavCard: { gap: 0 },
-  dayNavRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  navBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.cardElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  navBtnDisabled: { opacity: 0.3 },
-  dayLabel: { color: colors.text, fontWeight: '800', fontSize: 16, textAlign: 'center' },
-  todayBadge: { color: colors.accent, fontSize: 11, fontWeight: '700', textAlign: 'center', marginTop: 2 },
-  daySummaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-  },
-  dayStat: { alignItems: 'center', flex: 1 },
-  dayStatVal: { color: colors.accent, fontWeight: '900', fontSize: 18 },
-  dayStatLb: { color: colors.textMuted, fontSize: 10, fontWeight: '700', marginTop: 2 },
-  dayStatDivider: { width: 1, height: 36, backgroundColor: colors.border },
-  noDataTxt: { color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
-  // Sessions
-  sessionCard: {
-    flexDirection: 'row',
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
-    alignItems: 'center',
-  },
-  sessionType: { color: colors.accent, fontWeight: '800', fontSize: 15 },
-  sessionTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  sessionStats: { alignItems: 'flex-end', gap: 4 },
-  sStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  sStatVal: { color: colors.text, fontSize: 12, fontWeight: '700' },
-  sStatKm: { color: colors.accent, fontSize: 14, fontWeight: '900' },
-  // Goal
-  goalBtn: {
-    backgroundColor: colors.cardElevated,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.accent,
-  },
-  goalBtnTxt: { color: colors.accent, fontWeight: '800', textAlign: 'center' },
-  sec: { color: colors.text, fontWeight: '800', fontSize: 16, marginTop: 8 },
-  lb: { color: colors.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 6 },
-  input: {
-    backgroundColor: colors.bg,
-    borderRadius: 12,
-    padding: 12,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, marginBottom: 12 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-  },
-  chipOn: { borderColor: colors.accent, backgroundColor: colors.cardElevated },
-  chipTxt: { color: colors.textMuted, fontWeight: '700', fontSize: 12 },
-  chipTxtOn: { color: colors.accent },
-  addBig: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.accent,
-    paddingVertical: 14,
-    borderRadius: 999,
-  },
-  addBigTxt: { color: colors.bg, fontWeight: '900' },
-  rowCard: { gap: 10 },
-  wEx: { color: colors.textMuted, marginTop: 6, fontSize: 13 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  smallBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  smallBtnTxt: { color: colors.accent, fontWeight: '800', fontSize: 12 },
-  task: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  taskName: { color: colors.accent, fontWeight: '800', marginTop: 8 },
-  done: { textDecorationLine: 'line-through', color: colors.textMuted },
-  taskEx: { color: colors.textMuted, marginTop: 4, fontSize: 13 },
-  taskActions: { alignItems: 'flex-end', gap: 8 },
-  link: { color: colors.accent, fontWeight: '800' },
-  empty: { color: colors.textMuted },
-  ghost: {
-    marginTop: 10,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-  },
-  ghostTxt: { color: colors.accent, fontWeight: '800', textAlign: 'center' },
-});

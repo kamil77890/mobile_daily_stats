@@ -1,7 +1,6 @@
-import { ChevronLeft, ChevronRight, MapPin, Navigation, Timer } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
-  Animated,
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,487 +8,549 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { useActivityStatus } from '../hooks/useActivityStatus';
-import { useAppStore } from '../store/useAppStore';
-import { colors } from '../theme/colors';
-import { addDays, dayKey, parseDayKey } from '../utils/dates';
 import {
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Car,
+  Train,
+  Footprints,
+  Moon,
+  Home,
+  Clock,
+} from 'lucide-react-native';
+
+import { Card } from '../components/Card';
+import { useThemeColors } from '../theme/ThemeContext';
+import { useAppStore } from '../store/useAppStore';
+import { addDays, dayKey, parseDayKey } from '../utils/dates';
+import { pathLengthM } from '../utils/geo';
+import { reverseGeocodePoint } from '../hooks/useReverseGeocode';
+import {
+  buildMasterBlocks,
   computeActivityTimeline,
-  formatCoord,
   formatDuration,
-  type ActivitySegment,
+  VEHICLE_SPEED_MPS,
 } from '../utils/activityTimeline';
+import type { Coord } from '../store/types';
 
-const MAX_DAYS_BACK = 7;
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-const MONTH_SHORT = [
-  'Jan','Feb','Mar','Apr','May','Jun',
-  'Jul','Aug','Sep','Oct','Nov','Dec',
-];
-const WEEKDAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-function formatDayHeader(dk: string): string {
-  const d = parseDayKey(dk);
-  return `${WEEKDAY[d.getDay()]}, ${d.getDate()} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`;
-}
-
-function formatTime(ms: number): string {
-  const d = new Date(ms);
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-// ── Current status banner ────────────────────────────────────────────────────
-
-function PulsingDot({ color }: { color: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.4, duration: 700, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 700, useNativeDriver: true }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [scale]);
-
-  return (
-    <Animated.View
-      style={{
-        width: 10,
-        height: 10,
-        borderRadius: 5,
-        backgroundColor: color,
-        transform: [{ scale }],
-      }}
-    />
-  );
-}
-
-// ── Segment card ─────────────────────────────────────────────────────────────
-
-type SegmentCardProps = {
-  seg: ActivitySegment;
-  isFirst: boolean;
-  isLast: boolean;
+type TimelineBlock = {
+  id: string;
+  startTime: string; // "HH:MM"
+  endTime: string;   // "HH:MM"
+  startMs: number;
+  endMs: number;
+  type: 'sleeping' | 'stationary' | 'travel';
+  locationLabel: string;
+  address: string;
+  distanceKm?: number;
+  durationSec: number;
+  avgSpeedKmh?: number;
+  isVehicle: boolean;
+  coords?: Coord[];
 };
 
-function SegmentCard({ seg, isFirst, isLast }: SegmentCardProps) {
-  const isWalking = seg.type === 'walking';
-  const accent = isWalking ? colors.accent : colors.textMuted;
-  const icon = isWalking ? '🚶' : '💺';
-  const label = isWalking ? 'Walking' : 'Sitting / Still';
-  const km = seg.distanceM / 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const DAY_START_MS = 0; // 00:00
+const DAY_END_MS = MS_PER_DAY; // 24:00
 
-  return (
-    <View style={styles.segRow}>
-      {/* Timeline line & dot */}
-      <View style={styles.timelineCol}>
-        <View style={[styles.timelineDot, { backgroundColor: accent, borderColor: accent }]} />
-        {!isLast && <View style={[styles.timelineLine, { backgroundColor: isWalking ? colors.accent : colors.border }]} />}
-      </View>
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-      {/* Card */}
-      <View style={[styles.segCard, { borderColor: isWalking ? colors.accent + '40' : colors.border }]}>
-        {/* Header row */}
-        <View style={styles.segHeader}>
-          <Text style={styles.segIcon}>{icon}</Text>
-          <Text style={[styles.segType, { color: accent }]}>{label}</Text>
-          <View style={styles.flex1} />
-          <View style={[styles.durationBadge, { backgroundColor: isWalking ? colors.accent + '20' : colors.cardElevated }]}>
-            <Timer size={11} color={accent} />
-            <Text style={[styles.durationTxt, { color: accent }]}>{formatDuration(seg.durationSec)}</Text>
-          </View>
-        </View>
-
-        {/* Time range */}
-        <Text style={styles.segTime}>
-          {formatTime(seg.startMs)} – {formatTime(seg.endMs)}
-        </Text>
-
-        {/* Stats */}
-        <View style={styles.segStats}>
-          {isWalking && seg.distanceM > 0 && (
-            <View style={styles.segStatItem}>
-              <Navigation size={12} color={colors.textMuted} />
-              <Text style={styles.segStatTxt}>
-                {km >= 1 ? `${km.toFixed(2)} km` : `${Math.round(seg.distanceM)} m`}
-              </Text>
-            </View>
-          )}
-          <View style={styles.segStatItem}>
-            <Text style={styles.segStatDot}>·</Text>
-            <Text style={styles.segStatTxt}>{seg.pointCount} GPS pts</Text>
-          </View>
-        </View>
-
-        {/* Coordinates */}
-        <View style={styles.coordRow}>
-          <MapPin size={11} color={colors.border} />
-          <Text style={styles.coordTxt}>
-            {formatCoord(seg.startCoord.lat, seg.startCoord.lon)}
-          </Text>
-        </View>
-        {!isLast && (
-          <View style={[styles.coordRow, { marginTop: 2 }]}>
-            <MapPin size={11} color={colors.textMuted} />
-            <Text style={[styles.coordTxt, { color: colors.textMuted }]}>
-              → {formatCoord(seg.endCoord.lat, seg.endCoord.lon)}
-            </Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
+function msToTime(ms: number): string {
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
-// ── Main screen ───────────────────────────────────────────────────────────────
+function getDayStartMs(date: Date): number {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
 
-export function DailyTimelineScreen() {
+function detectTravelType(avgSpeedKmh: number, maxSpeedKmh: number): { isVehicle: boolean; icon: 'car' | 'train' | 'walk' } {
+  if (avgSpeedKmh > 10) {
+    return {
+      isVehicle: true,
+      icon: maxSpeedKmh > 80 ? 'train' : 'car',
+    };
+  }
+  return { isVehicle: false, icon: 'walk' };
+}
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+
+type Props = { navigation: any };
+
+export function DailyTimelineScreen({ navigation }: Props) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const today = dayKey();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [blocks, setBlocks] = useState<TimelineBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalKm, setTotalKm] = useState(0);
+  const [totalTravelMin, setTotalTravelMin] = useState(0);
+
   const sessions = useAppStore((s) => s.sessions);
   const history = useAppStore((s) => s.history);
-  const activityStatus = useActivityStatus();
 
-  const todayKey = dayKey();
-  const [selectedDay, setSelectedDay] = useState(todayKey);
-  const isToday = selectedDay === todayKey;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
 
-  // Clamp navigation
-  const canGoBack = selectedDay > addDays(todayKey, -MAX_DAYS_BACK);
-  const canGoForward = selectedDay < todayKey;
+  const dayData = history[selectedDate];
+  const isToday = selectedDate === today;
 
-  const navigateDay = (delta: number) => {
-    setSelectedDay((prev) => {
-      const next = addDays(prev, delta);
-      if (delta < 0 && next < addDays(todayKey, -MAX_DAYS_BACK)) return prev;
-      if (delta > 0 && next > todayKey) return prev;
-      return next;
-    });
+  // Build continuous timeline
+  useEffect(() => {
+    let cancelled = false;
+
+    const buildTimeline = async () => {
+      setLoading(true);
+      setBlocks([]);
+      setTotalKm(0);
+      setTotalTravelMin(0);
+
+      const dk = selectedDate;
+      const daySessions = sessionsRef.current.filter((s) => s.dayKey === dk);
+      if (daySessions.length === 0) {
+        if (!cancelled) {
+          setBlocks(generateEmptyDay());
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Collect all coords sorted by time
+      const allCoords: Coord[] = [];
+      for (const session of daySessions) {
+        allCoords.push(...session.coords);
+      }
+      allCoords.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+
+      if (allCoords.length < 2) {
+        if (!cancelled) {
+          setBlocks(generateEmptyDay());
+          setLoading(false);
+        }
+        return;
+      }
+
+      const dayStart = getDayStartMs(parseDayKey(dk));
+      const firstCoord = allCoords[0];
+      const lastCoord = allCoords[allCoords.length - 1];
+      const sessionStart = firstCoord.timestamp ?? dayStart;
+      const sessionEnd = lastCoord.timestamp ?? dayStart;
+
+      // Compute activity timeline
+      const segments = computeActivityTimeline(allCoords, sessionStart, sessionEnd);
+      const masterBlocks = buildMasterBlocks(segments);
+
+      // Convert to continuous timeline blocks
+      const timelineBlocks: TimelineBlock[] = [];
+      let currentMs = dayStart;
+
+      // Gap before first GPS point → sleeping/stationary
+      if (sessionStart > dayStart + 30 * 60 * 1000) {
+        const sleepEnd = sessionStart;
+        const loc = await reverseGeocodePoint(firstCoord.latitude, firstCoord.longitude);
+        timelineBlocks.push({
+          id: `sleep-${currentMs}`,
+          startTime: msToTime(currentMs - dayStart),
+          endTime: msToTime(sleepEnd - dayStart),
+          startMs: currentMs,
+          endMs: sleepEnd,
+          type: 'sleeping',
+          locationLabel: loc || 'Home',
+          address: loc || '',
+          durationSec: (sleepEnd - currentMs) / 1000,
+          isVehicle: false,
+        });
+        currentMs = sleepEnd;
+      }
+
+      // Process each master block
+      for (const block of masterBlocks) {
+        // Fill gap before this block if any
+        if (block.startMs > currentMs + 5 * 60 * 1000) {
+          const loc = await reverseGeocodePoint(
+            block.startCoord.lat,
+            block.startCoord.lon,
+          );
+          timelineBlocks.push({
+            id: `gap-${currentMs}`,
+            startTime: msToTime(currentMs - dayStart),
+            endTime: msToTime(block.startMs - dayStart),
+            startMs: currentMs,
+            endMs: block.startMs,
+            type: 'stationary',
+            locationLabel: loc || 'Unknown location',
+            address: loc || '',
+            durationSec: (block.startMs - currentMs) / 1000,
+            isVehicle: false,
+          });
+        }
+
+        // Create block from master
+        const loc = await reverseGeocodePoint(
+          block.centerCoord.lat,
+          block.centerCoord.lon,
+        );
+        const travelInfo = detectTravelType(block.avgSpeedKmh, block.maxSpeedKmh);
+        const distKm = block.distanceM / 1000;
+
+        timelineBlocks.push({
+          id: block.id,
+          startTime: msToTime(block.startMs - dayStart),
+          endTime: msToTime(block.endMs - dayStart),
+          startMs: block.startMs,
+          endMs: block.endMs,
+          type: block.type === 'transit' ? 'travel' : 'stationary',
+          locationLabel: travelInfo.isVehicle
+            ? `${travelInfo.icon === 'car' ? '🚗' : '🚆'} Podróż`
+            : loc || 'Unknown',
+          address: loc || '',
+          distanceKm: distKm > 0.05 ? distKm : undefined,
+          durationSec: block.durationSec,
+          avgSpeedKmh: block.avgSpeedKmh,
+          isVehicle: travelInfo.isVehicle,
+          coords: block.rawSegments.flatMap((s) => {
+            // Reconstruct coords from segments if available
+            return [];
+          }),
+        });
+
+        currentMs = block.endMs;
+      }
+
+      // Gap after last GPS point to end of day → stationary at home
+      if (currentMs < dayStart + MS_PER_DAY - 30 * 60 * 1000) {
+        const lastLoc = await reverseGeocodePoint(
+          lastCoord.latitude,
+          lastCoord.longitude,
+        );
+        timelineBlocks.push({
+          id: `end-${currentMs}`,
+          startTime: msToTime(currentMs - dayStart),
+          endTime: '23:59',
+          startMs: currentMs,
+          endMs: dayStart + MS_PER_DAY,
+          type: 'stationary',
+          locationLabel: lastLoc || 'Home',
+          address: lastLoc || '',
+          durationSec: (dayStart + MS_PER_DAY - currentMs) / 1000,
+          isVehicle: false,
+        });
+      }
+
+      // Calculate totals
+      let km = 0;
+      let travelMin = 0;
+      for (const b of timelineBlocks) {
+        if (b.distanceKm) km += b.distanceKm;
+        if (b.type === 'travel') travelMin += b.durationSec / 60;
+      }
+
+      if (!cancelled) {
+        setBlocks(timelineBlocks);
+        setTotalKm(km);
+        setTotalTravelMin(travelMin);
+        setLoading(false);
+      }
+    };
+
+    buildTimeline();
+    return () => { cancelled = true; };
+  }, [selectedDate]);
+
+  const handleDayChange = (delta: number) => {
+    const d = parseDayKey(selectedDate);
+    d.setDate(d.getDate() + delta);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (d <= todayStart) {
+      setSelectedDate(dayKey(d));
+    }
   };
 
-  // Compute timeline segments for the selected day
-  const segments: ActivitySegment[] = useMemo(() => {
-    const daySessions = sessions
-      .filter((s) => s.dayKey === selectedDay)
-      .sort((a, b) => a.startedAt - b.startedAt);
-
-    if (daySessions.length === 0) return [];
-
-    const allCoords = daySessions.flatMap((s) => s.coords);
-    const startedAt = daySessions[0].startedAt;
-    const endedAt = daySessions[daySessions.length - 1].endedAt;
-
-    return computeActivityTimeline(allCoords, startedAt, endedAt);
-  }, [sessions, selectedDay]);
-
-  // Summary stats
-  const dayHistory = history[selectedDay];
-  const walkingSegs = segments.filter((s) => s.type === 'walking');
-  const walkingTimeSec = walkingSegs.reduce((sum, s) => sum + s.durationSec, 0);
-  const sittingSegs = segments.filter((s) => s.type === 'sitting');
-  const sittingTimeSec = sittingSegs.reduce((sum, s) => sum + s.durationSec, 0);
-  const totalDistM = walkingSegs.reduce((sum, s) => sum + s.distanceM, 0);
-
-  // Current status display (only shown when viewing today)
-  const statusColor =
-    activityStatus === 'walking' ? colors.accent : activityStatus === 'sitting' ? colors.textMuted : colors.border;
-  const statusLabel =
-    activityStatus === 'walking' ? 'Walking' : activityStatus === 'sitting' ? 'Sitting / Still' : 'No recent data';
-  const statusIcon =
-    activityStatus === 'walking' ? '🚶' : activityStatus === 'sitting' ? '💺' : '📡';
+  const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    content: { paddingBottom: 32, paddingHorizontal: 16, paddingTop: insets.top + 12 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    title: { color: colors.text, fontSize: 28, fontWeight: '800' },
+    dateText: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
+    navButtons: { flexDirection: 'row', gap: 8 },
+    navButton: {
+      width: 40, height: 40, borderRadius: 20,
+      backgroundColor: colors.cardElevated,
+      alignItems: 'center', justifyContent: 'center',
+      borderWidth: 1, borderColor: colors.border,
+    },
+    statsRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+    statBox: {
+      flex: 1,
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statValue: { fontSize: 18, fontWeight: '900', color: colors.accent },
+    statLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '700', marginTop: 4 },
+    timeline: { gap: 0 },
+    blockRow: { flexDirection: 'row', alignItems: 'stretch' },
+    timeColumn: { width: 52, paddingRight: 12, alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 14 },
+    timeText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+    timeEndText: { color: colors.textMuted, fontSize: 10, fontWeight: '400', marginTop: 2 },
+    lineColumn: { width: 24, alignItems: 'center', paddingTop: 14 },
+    dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
+    line: { width: 2, flex: 1, backgroundColor: colors.border, marginTop: 4 },
+    lineEnd: { width: 2, height: 20, backgroundColor: colors.border, marginTop: 4 },
+    card: {
+      flex: 1,
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 14,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cardTravel: {
+      flex: 1,
+      borderRadius: 16,
+      padding: 14,
+      marginBottom: 8,
+      borderWidth: 2,
+    },
+    cardSleep: {
+      flex: 1,
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 14,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      opacity: 0.7,
+    },
+    blockHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    blockIcon: {
+      width: 36, height: 36, borderRadius: 18,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    blockInfo: { flex: 1 },
+    blockTitle: { fontSize: 15, fontWeight: '700' },
+    blockAddress: { fontSize: 12, marginTop: 2 },
+    blockMetrics: { flexDirection: 'row', gap: 16, marginTop: 8 },
+    metric: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    metricText: { fontSize: 13, fontWeight: '600' },
+    metricLabel: { fontSize: 10, fontWeight: '600' },
+    emptyState: { alignItems: 'center', paddingVertical: 60 },
+    emptyText: { color: colors.textMuted, fontSize: 14, marginTop: 12, textAlign: 'center' },
+    todayButton: {
+      marginTop: 20,
+      backgroundColor: colors.accent,
+      paddingVertical: 14,
+      borderRadius: 999,
+      alignItems: 'center',
+    },
+    todayButtonText: { color: colors.bg, fontSize: 14, fontWeight: '800' },
+  });
 
   return (
     <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: 40 }]}
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
     >
-      {/* ── Title ── */}
-      <Text style={styles.title}>Daily Timeline</Text>
-
-      {/* ── Day navigation ── */}
-      <View style={styles.dayNav}>
-        <TouchableOpacity
-          style={[styles.navBtn, !canGoBack && styles.navBtnOff]}
-          onPress={() => canGoBack && navigateDay(-1)}
-          activeOpacity={canGoBack ? 0.7 : 1}
-        >
-          <ChevronLeft color={canGoBack ? colors.text : colors.border} size={22} />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => setSelectedDay(todayKey)} style={styles.dayLabelWrap}>
-          <Text style={styles.dayLabel}>{formatDayHeader(selectedDay)}</Text>
-          {isToday && <Text style={styles.todayBadge}>TODAY</Text>}
-          {!isToday && (
-            <Text style={styles.tapToToday}>tap to jump to today</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.navBtn, !canGoForward && styles.navBtnOff]}
-          onPress={() => canGoForward && navigateDay(1)}
-          activeOpacity={canGoForward ? 0.7 : 1}
-        >
-          <ChevronRight color={canGoForward ? colors.text : colors.border} size={22} />
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Current status (today only) ── */}
-      {isToday && (
-        <View style={[styles.statusCard, { borderColor: statusColor }]}>
-          <View style={styles.statusLeft}>
-            <Text style={styles.statusIcon}>{statusIcon}</Text>
-            <View>
-              <Text style={styles.statusNow}>Right now</Text>
-              <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
-            </View>
-          </View>
-          <PulsingDot color={statusColor} />
-        </View>
-      )}
-
-      {/* ── Day summary bar ── */}
-      {dayHistory || segments.length > 0 ? (
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryVal}>
-              {dayHistory ? dayHistory.steps.toLocaleString() : '0'}
-            </Text>
-            <Text style={styles.summaryLb}>steps</Text>
-          </View>
-          <View style={styles.summaryDiv} />
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryVal}>
-              {totalDistM >= 1000
-                ? `${(totalDistM / 1000).toFixed(2)} km`
-                : `${Math.round(totalDistM)} m`}
-            </Text>
-            <Text style={styles.summaryLb}>walked</Text>
-          </View>
-          <View style={styles.summaryDiv} />
-          <View style={styles.summaryItem}>
-            <Text style={[styles.summaryVal, { color: colors.accent }]}>
-              {formatDuration(walkingTimeSec)}
-            </Text>
-            <Text style={styles.summaryLb}>moving</Text>
-          </View>
-          <View style={styles.summaryDiv} />
-          <View style={styles.summaryItem}>
-            <Text style={[styles.summaryVal, { color: colors.textMuted }]}>
-              {formatDuration(sittingTimeSec)}
-            </Text>
-            <Text style={styles.summaryLb}>still</Text>
-          </View>
-        </View>
-      ) : null}
-
-      {/* ── Segment count badges ── */}
-      {segments.length > 0 && (
-        <View style={styles.badgeRow}>
-          <View style={[styles.badge, { borderColor: colors.accent }]}>
-            <Text style={[styles.badgeTxt, { color: colors.accent }]}>
-              {walkingSegs.length} walk{walkingSegs.length !== 1 ? 's' : ''}
-            </Text>
-          </View>
-          <View style={[styles.badge, { borderColor: colors.border }]}>
-            <Text style={[styles.badgeTxt, { color: colors.textMuted }]}>
-              {sittingSegs.length} stop{sittingSegs.length !== 1 ? 's' : ''}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* ── Timeline ── */}
-      {segments.length > 0 ? (
-        <View style={styles.timeline}>
-          <Text style={styles.sectionLabel}>Activity log</Text>
-          {segments.map((seg, idx) => (
-            <SegmentCard
-              key={`${seg.startMs}-${idx}`}
-              seg={seg}
-              isFirst={idx === 0}
-              isLast={idx === segments.length - 1}
-            />
-          ))}
-        </View>
-      ) : (
-        <View style={styles.emptyBox}>
-          <Text style={styles.emptyIcon}>📍</Text>
-          <Text style={styles.emptyTitle}>No data for this day</Text>
-          <Text style={styles.emptySubtitle}>
-            {isToday
-              ? 'Enable background walking or start a workout to see your activity timeline.'
-              : 'No GPS data was recorded on this day.'}
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Timeline</Text>
+          <Text style={styles.dateText}>
+            {parseDayKey(selectedDate).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </Text>
         </View>
+        <View style={styles.navButtons}>
+          <TouchableOpacity
+            style={[styles.navButton, selectedDate >= today && { opacity: 0.4 }]}
+            onPress={() => handleDayChange(-1)}
+            disabled={selectedDate >= today}
+            activeOpacity={0.7}
+          >
+            <ChevronLeft color={selectedDate >= today ? colors.textMuted : colors.text} size={20} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.navButton, selectedDate >= today && { opacity: 0.4 }]}
+            onPress={() => handleDayChange(1)}
+            disabled={selectedDate >= today}
+            activeOpacity={0.7}
+          >
+            <ChevronRight color={selectedDate >= today ? colors.textMuted : colors.text} size={20} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Stats */}
+      {dayData && (
+        <View style={styles.statsRow}>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{(dayData.distanceM / 1000).toFixed(2)}</Text>
+            <Text style={styles.statLabel}>km today</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{dayData.steps?.toLocaleString() ?? 0}</Text>
+            <Text style={styles.statLabel}>steps</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{totalKm.toFixed(2)}</Text>
+            <Text style={styles.statLabel}>travel km</Text>
+          </View>
+        </View>
       )}
 
-      {/* ── Legend ── */}
-      <View style={styles.legend}>
-        <Text style={styles.legendTxt}>
-          Timeline built from GPS coords sampled every ~1 min (day) / 10 min (night).
-          Short segments (&lt;2 min) are merged with adjacent ones.
-        </Text>
-      </View>
+      {/* Timeline */}
+      {loading ? (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={styles.emptyText}>Loading timeline...</Text>
+        </View>
+      ) : blocks.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Moon color={colors.textMuted} size={48} />
+          <Text style={styles.emptyText}>No data for this day.{'\n'}Your timeline will appear here.</Text>
+        </View>
+      ) : (
+        <View style={styles.timeline}>
+          {blocks.map((block, index) => {
+            const isLast = index === blocks.length - 1;
+            const travelInfo = block.isVehicle
+              ? detectTravelType(block.avgSpeedKmh ?? 0, block.avgSpeedKmh ?? 0)
+              : null;
+
+            let cardStyle = styles.card;
+            let iconBg = colors.accent + '22';
+            let iconColor = colors.accent;
+            let IconComponent = MapPin;
+
+            if (block.type === 'sleeping') {
+              cardStyle = styles.cardSleep;
+              iconBg = colors.textMuted + '22';
+              iconColor = colors.textMuted;
+              IconComponent = Moon;
+            } else if (block.type === 'travel') {
+              cardStyle = { ...styles.cardTravel, borderColor: colors.accent as any, backgroundColor: (colors.accent + '11') as any };
+              iconBg = (colors.accent + '33') as any;
+              iconColor = colors.accent;
+              IconComponent = travelInfo?.icon === 'train' ? Train : Car;
+            }
+
+            return (
+              <View key={block.id} style={styles.blockRow}>
+                {/* Time column */}
+                <View style={styles.timeColumn}>
+                  <Text style={styles.timeText}>{block.startTime}</Text>
+                  <Text style={styles.timeEndText}>{block.endTime}</Text>
+                </View>
+
+                {/* Line column */}
+                <View style={styles.lineColumn}>
+                  <View style={[styles.dot, { backgroundColor: iconColor, borderColor: iconBg }]} />
+                  {!isLast && <View style={styles.line} />}
+                </View>
+
+                {/* Card */}
+                <View style={cardStyle}>
+                  <View style={styles.blockHeader}>
+                    <View style={[styles.blockIcon, { backgroundColor: iconBg }]}>
+                      <IconComponent color={iconColor} size={18} />
+                    </View>
+                    <View style={styles.blockInfo}>
+                      <Text style={[styles.blockTitle, { color: block.type === 'sleeping' ? colors.textMuted : colors.text }]}>
+                        {block.locationLabel}
+                      </Text>
+                      {block.address && block.type !== 'travel' && (
+                        <Text style={[styles.blockAddress, { color: colors.textMuted }]} numberOfLines={1}>
+                          {block.address}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Travel metrics */}
+                  {block.type === 'travel' && (
+                    <View style={styles.blockMetrics}>
+                      {block.distanceKm && (
+                        <View style={styles.metric}>
+                          <MapPin color={colors.accent} size={14} />
+                          <Text style={[styles.metricText, { color: colors.accent }]}>{block.distanceKm.toFixed(2)} km</Text>
+                        </View>
+                      )}
+                      <View style={styles.metric}>
+                        <Clock color={colors.accent} size={14} />
+                        <Text style={[styles.metricText, { color: colors.accent }]}>{formatDuration(block.durationSec)}</Text>
+                      </View>
+                      {block.avgSpeedKmh && block.avgSpeedKmh > 5 && (
+                        <View style={styles.metric}>
+                          <Car color={colors.accent} size={14} />
+                          <Text style={[styles.metricText, { color: colors.accent }]}>{Math.round(block.avgSpeedKmh)} km/h</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Stationary duration */}
+                  {block.type === 'stationary' && (
+                    <View style={styles.blockMetrics}>
+                      <View style={styles.metric}>
+                        <Clock color={colors.textMuted} size={14} />
+                        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>{formatDuration(block.durationSec)}</Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Sleeping duration */}
+                  {block.type === 'sleeping' && (
+                    <View style={styles.blockMetrics}>
+                      <View style={styles.metric}>
+                        <Moon color={colors.textMuted} size={14} />
+                        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>{formatDuration(block.durationSec)}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* Today button */}
+      {!isToday && (
+        <TouchableOpacity style={styles.todayButton} onPress={() => setSelectedDate(today)}>
+          <Text style={styles.todayButtonText}>Go to Today</Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: 16, gap: 14 },
-
-  title: { color: colors.text, fontSize: 28, fontWeight: '800' },
-
-  // Day navigation
-  dayNav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  navBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.cardElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navBtnOff: { opacity: 0.25 },
-  dayLabelWrap: { alignItems: 'center', flex: 1 },
-  dayLabel: { color: colors.text, fontWeight: '800', fontSize: 15 },
-  todayBadge: {
-    color: colors.accent,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-    marginTop: 3,
-  },
-  tapToToday: {
-    color: colors.textMuted,
-    fontSize: 10,
-    marginTop: 3,
-    fontWeight: '600',
-  },
-
-  // Current status
-  statusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1.5,
-  },
-  statusLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  statusIcon: { fontSize: 32 },
-  statusNow: { color: colors.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-  statusLabel: { fontSize: 20, fontWeight: '900', marginTop: 2 },
-
-  // Summary bar
-  summaryRow: {
-    flexDirection: 'row',
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'space-around',
-  },
-  summaryItem: { alignItems: 'center', flex: 1 },
-  summaryVal: { color: colors.text, fontWeight: '900', fontSize: 16 },
-  summaryLb: { color: colors.textMuted, fontSize: 10, fontWeight: '700', marginTop: 3 },
-  summaryDiv: { width: 1, height: 34, backgroundColor: colors.border },
-
-  // Badges
-  badgeRow: { flexDirection: 'row', gap: 8 },
-  badge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: colors.card,
-  },
-  badgeTxt: { fontWeight: '800', fontSize: 12 },
-
-  // Timeline
-  sectionLabel: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  timeline: { gap: 0 },
-  segRow: { flexDirection: 'row', gap: 12 },
-
-  // Timeline spine
-  timelineCol: { alignItems: 'center', width: 18, paddingTop: 18 },
-  timelineDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
-  timelineLine: { flex: 1, width: 2, marginTop: 4, marginBottom: 0, minHeight: 24 },
-
-  // Segment card
-  segCard: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    marginBottom: 10,
-  },
-  segHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  segIcon: { fontSize: 18 },
-  segType: { fontWeight: '800', fontSize: 14 },
-  flex1: { flex: 1 },
-  durationBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  durationTxt: { fontSize: 11, fontWeight: '800' },
-
-  segTime: { color: colors.text, fontWeight: '700', fontSize: 15, marginBottom: 8 },
-
-  segStats: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 8 },
-  segStatItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  segStatDot: { color: colors.border, fontSize: 16 },
-  segStatTxt: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
-
-  coordRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  coordTxt: { color: colors.border, fontSize: 11, fontWeight: '600', fontVariant: ['tabular-nums'] },
-
-  // Empty state
-  emptyBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-    gap: 12,
-  },
-  emptyIcon: { fontSize: 48 },
-  emptyTitle: { color: colors.text, fontWeight: '800', fontSize: 18, textAlign: 'center' },
-  emptySubtitle: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 22 },
-
-  // Legend
-  legend: {
-    paddingTop: 4,
-    paddingHorizontal: 4,
-  },
-  legendTxt: { color: colors.border, fontSize: 11, lineHeight: 18 },
-});
+function generateEmptyDay(): TimelineBlock[] {
+  return [
+    {
+      id: 'empty-sleep',
+      startTime: '00:00',
+      endTime: '23:59',
+      startMs: 0,
+      endMs: 24 * 60 * 60 * 1000,
+      type: 'sleeping',
+      locationLabel: 'No data',
+      address: '',
+      durationSec: 24 * 60 * 60,
+      isVehicle: false,
+    },
+  ];
+}

@@ -1,157 +1,348 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Settings2 } from 'lucide-react-native';
-import { useMemo } from 'react';
+import { Settings2, MapPin, Plus } from 'lucide-react-native';
+import { useMemo, useState, useEffect } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Card } from '../components/Card';
-import { DonutGoal } from '../components/DonutGoal';
+import { AnimatedCard } from '../components/AnimatedCard';
+import { LevelBadge } from '../components/LevelBadge';
+import { WeatherCard } from '../components/WeatherCard';
+import { ActivityRing } from '../components/ActivityRings';
 import { WeeklyBars } from '../components/WeeklyBars';
+import { CustomGoalModal } from '../components/CustomGoalModal';
+import { CustomGoalCard } from '../components/CustomGoalCard';
 import { useActivityStatus } from '../hooks/useActivityStatus';
 import type { RootStackParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
-import type { Coord } from '../store/types';
-import { colors } from '../theme/colors';
+import type { Coord, DailyGoal } from '../store/types';
+import { useThemeColors } from '../theme/ThemeContext';
+import { darkMapStyle } from '../theme/mapStyle';
+import { buildColoredPolylines } from '../utils/activityTimeline';
 import { dayKey, lastNDayKeys, parseDayKey } from '../utils/dates';
 import { kcalFromWalk, regionForCoords } from '../utils/geo';
-import { findMovementPauses, formatPauseRange } from '../utils/pauseDetection';
 
 const WD = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-/** Returns intermediate waypoints spaced at least `intervalMs` apart */
-function getRouteWaypoints(coords: Coord[], intervalMs = 15_000): Coord[] {
+function StartDot() {
+  const colors = useThemeColors();
+  return (
+    <View style={{
+      width: 14, height: 14, borderRadius: 7,
+      backgroundColor: colors.markerStart,
+      borderWidth: 2, borderColor: '#fff',
+    }} />
+  );
+}
+
+function EndDot() {
+  const colors = useThemeColors();
+  return (
+    <View style={{
+      width: 14, height: 14, borderRadius: 7,
+      backgroundColor: colors.markerEnd,
+      borderWidth: 2, borderColor: '#fff',
+    }} />
+  );
+}
+
+function getWaypoints(coords: Coord[], intervalMs = 20_000): Coord[] {
   if (coords.length < 3) return [];
-  const points: Coord[] = [];
+  const pts: Coord[] = [];
   let lastT = (coords[0].timestamp ?? 0) - 1;
   for (let i = 1; i < coords.length - 1; i++) {
     const t = coords[i].timestamp ?? 0;
-    if (t - lastT >= intervalMs) {
-      points.push(coords[i]);
-      lastT = t;
-    }
+    if (t - lastT >= intervalMs) { pts.push(coords[i]); lastT = t; }
   }
-  return points;
+  return pts;
 }
 
 export function HomeScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
-  const parent = navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined;
+  const nav = useNavigation();
+  const parent = nav.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined;
   const dk = dayKey();
-  const history = useAppStore((s) => s.history);
-  const sessions = useAppStore((s) => s.sessions);
-  const dailyGoalKm = useAppStore((s) => s.dailyGoalKm);
-  const dailyGoalCalories = useAppStore((s) => s.dailyGoalCalories);
+  const history = useAppStore(s => s.history);
+  const sessions = useAppStore(s => s.sessions);
+  const goalKm = useAppStore(s => s.dailyGoalKm);
+  const goalCal = useAppStore(s => s.dailyGoalCalories);
+  const goalSteps = 10000;
+  const actStatus = useActivityStatus();
+  const level = useAppStore(s => s.gamification.level);
+  const xp = useAppStore(s => s.gamification.xp);
 
-  // Real-time activity status (updates every 10s + on session change)
-  const activityStatus = useActivityStatus();
+  const [currentLocation, setCurrentLocation] = useState<Coord | null>(null);
 
-  const today = history[dk] ?? {
-    steps: 0,
-    distanceM: 0,
-    kcal: 0,
-    inclineM: 0,
-    goalMet: false,
+  // Custom goals state
+  const dailyGoals = useAppStore(s => s.dailyGoals);
+  const addDailyGoal = useAppStore(s => s.addDailyGoal);
+  const updateDailyGoal = useAppStore(s => s.updateDailyGoal);
+  const removeDailyGoal = useAppStore(s => s.removeDailyGoal);
+  const completeDailyGoal = useAppStore(s => s.completeDailyGoal);
+  const incrementDailyGoals = useAppStore(s => s.incrementDailyGoals);
+
+  const [goalModalVisible, setGoalModalVisible] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<DailyGoal | null>(null);
+
+  // Increment goals on mount (new day check)
+  useEffect(() => {
+    incrementDailyGoals();
+  }, []);
+
+  const handleGoalSave = (name: string, targetValue: number, dailyIncrement: number, unit: string) => {
+    if (editingGoal) {
+      updateDailyGoal(editingGoal.id, { name, targetValue, dailyIncrement, unit });
+      setEditingGoal(null);
+    } else {
+      addDailyGoal(name, targetValue, dailyIncrement, unit);
+    }
   };
 
+  const handleGoalEdit = (goal: DailyGoal) => {
+    setEditingGoal(goal);
+    setGoalModalVisible(true);
+  };
+
+  const handleGoalDelete = (id: string) => {
+    removeDailyGoal(id);
+  };
+
+  const handleGoalComplete = (id: string) => {
+    completeDailyGoal(id);
+  };
+
+  const handleOpenCreateGoal = () => {
+    setEditingGoal(null);
+    setGoalModalVisible(true);
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const getCurrentLocation = async () => {
+      try {
+        const { getForegroundPermissionsAsync, getCurrentPositionAsync } = await import('expo-location');
+        const { status } = await getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const location = await getCurrentPositionAsync({ accuracy: 3 });
+          if (isMounted) {
+            setCurrentLocation({
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              altitude: location.coords.altitude ?? null,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } catch (err) {
+        console.log('Location fetch error:', err);
+      }
+    };
+
+    getCurrentLocation();
+    const interval = setInterval(getCurrentLocation, 60000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleNavigate = (screen: keyof RootStackParamList) => {
+    const rootNav = nav.getParent()?.getParent();
+    if (rootNav && 'navigate' in rootNav) {
+      (rootNav as any).navigate(screen);
+    }
+  };
+
+  const today = history[dk] ?? { steps: 0, distanceM: 0, kcal: 0, inclineM: 0, goalMet: false };
+
   const daySessions = useMemo(
-    () => [...sessions].filter((s) => s.dayKey === dk).sort((a, b) => a.startedAt - b.startedAt),
+    () => [...sessions].filter(s => s.dayKey === dk).sort((a, b) => a.startedAt - b.startedAt),
     [sessions, dk],
   );
-
-  const mergedCoords = useMemo(() => daySessions.flatMap((s) => s.coords), [daySessions]);
+  const mergedCoords = useMemo(() => daySessions.flatMap(s => s.coords), [daySessions]);
   const mapRegion = useMemo(() => regionForCoords(mergedCoords), [mergedCoords]);
+  const waypoints = useMemo(() => getWaypoints(mergedCoords, 20_000), [mergedCoords]);
 
   const startEnd = useMemo(() => {
     if (!daySessions.length) return null;
     const first = daySessions[0].coords[0];
     const lastS = daySessions[daySessions.length - 1];
     const last = lastS.coords[lastS.coords.length - 1];
-    if (!first || !last) return null;
-    return { start: first, end: last };
+    return first && last ? { start: first, end: last } : null;
   }, [daySessions]);
 
-  const pauses = useMemo(() => {
-    if (daySessions.length === 0 || mergedCoords.length < 3) return [];
-    const t0 = daySessions[0].startedAt;
-    const t1 = daySessions[daySessions.length - 1].endedAt;
-    return findMovementPauses(mergedCoords, t0, t1);
-  }, [daySessions, mergedCoords]);
-
-  /** 15-second waypoint dots on map */
-  const waypoints = useMemo(() => getRouteWaypoints(mergedCoords, 15_000), [mergedCoords]);
-
   const weekKeys = useMemo(() => lastNDayKeys(7), []);
-  const weekKm = weekKeys.map((k) => (history[k]?.distanceM ?? 0) / 1000);
-  const weekSteps = weekKeys.map((k) => history[k]?.steps ?? 0);
-  const weekLabels = weekKeys.map((k) => WD[parseDayKey(k).getDay()]);
-  const maxWeek = Math.max(...weekKm, dailyGoalKm);
+  const weekKm = weekKeys.map(k => (history[k]?.distanceM ?? 0) / 1000);
+  const weekSteps = weekKeys.map(k => history[k]?.steps ?? 0);
+  const weekLabels = weekKeys.map(k => WD[parseDayKey(k).getDay()]);
+  const maxWeek = Math.max(...weekKm, goalKm);
 
   const todayKm = today.distanceM / 1000;
-  const calProgress = Math.min(1, kcalFromWalk(todayKm, today.steps) / Math.max(dailyGoalCalories, 1));
   const burnKcal = kcalFromWalk(todayKm, today.steps);
-  const remainingCal = Math.max(0, dailyGoalCalories - burnKcal);
   const hasRoute = mergedCoords.length > 1;
 
-  const activityColor =
-    activityStatus === 'walking'
-      ? colors.accent
-      : activityStatus === 'sitting'
-        ? colors.textMuted
-        : colors.border;
-  const activityIcon =
-    activityStatus === 'walking' ? '🚶' : activityStatus === 'sitting' ? '💺' : '📡';
-  const activityLabel =
-    activityStatus === 'walking' ? 'Walking' : activityStatus === 'sitting' ? 'Sitting' : 'No signal';
+  const actColor =
+    actStatus === 'walking' ? '#39FF14' :
+    actStatus === 'vehicle' ? colors.vehicle : colors.textMuted;
+  const actIcon = actStatus === 'walking' ? '🚶' : actStatus === 'vehicle' ? '🚗' : '💺';
+  const actLabel = actStatus === 'walking' ? 'Walking' : actStatus === 'vehicle' ? 'In Vehicle' : 'Stationary';
+
+  const styles = StyleSheet.create({
+    scroll: { flex: 1 },
+    content: { paddingBottom: 32, paddingHorizontal: 16, gap: 14 },
+
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    title: { fontSize: 28, fontWeight: '800' },
+    muted: { marginTop: 4, fontSize: 13 },
+    muted2: { fontSize: 11, marginTop: 10, fontWeight: '700' },
+    gear: {
+      width: 44, height: 44, borderRadius: 22,
+      alignItems: 'center', justifyContent: 'center',
+      borderWidth: 1,
+    },
+    actPill: {
+      flexDirection: 'row', alignItems: 'center',
+      paddingHorizontal: 10, paddingVertical: 6,
+      borderRadius: 999, borderWidth: 1.5,
+      gap: 5,
+    },
+    actIcon: { fontSize: 14 },
+    actLabel: { fontSize: 12, fontWeight: '800' },
+
+    ringsCard: { padding: 20 },
+    ringsContainer: { alignItems: 'center' },
+    ringsRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%' },
+    ringItem: { alignItems: 'center', gap: 6 },
+    ringLabel: { fontSize: 11, fontWeight: '700', marginTop: 6 },
+
+    mapCard: { padding: 0, overflow: 'hidden' },
+    mapWrap: { height: 190, width: '100%', backgroundColor: '#111' },
+    mapEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
+    mapEmptyTxt: { textAlign: 'center', lineHeight: 20 },
+    mapStats: { padding: 16, gap: 4 },
+    statLine: { fontSize: 13, fontWeight: '700' },
+    statVal: {},
+
+    legendRow: { flexDirection: 'row', gap: 14, marginTop: 6 },
+    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    legendLine: { width: 20, height: 3, borderRadius: 2 },
+    legendTxt: { fontSize: 11, fontWeight: '600' },
+    mapHint: { fontSize: 12, marginTop: 4, fontWeight: '700' },
+
+    currentLocationMarker: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 3,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.6,
+      shadowRadius: 10,
+      elevation: 8,
+    },
+
+    waypointDot: {
+      width: 7, height: 7, borderRadius: 3.5,
+      opacity: 0.7,
+    },
+
+    rowCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 20 },
+    rowBig: { fontSize: 22, fontWeight: '800' },
+    donutContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      borderWidth: 2,
+    },
+    donutLabel: {
+      fontSize: 20,
+      fontWeight: '900',
+    },
+    donutSub: {
+      fontSize: 9,
+      fontWeight: '700',
+      marginTop: 4,
+      textAlign: 'center',
+    },
+
+    weekHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+    cardTitle: { fontSize: 18, fontWeight: '800' },
+  });
 
   return (
     <ScrollView
-      style={styles.scroll}
+      showsVerticalScrollIndicator={false}
+      style={[styles.scroll, { backgroundColor: colors.bg }]}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}
     >
-      {/* ── Header ── */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Summary</Text>
-          <Text style={styles.muted}>Today's movement</Text>
+        <View style={styles.headerLeft}>
+          <View>
+            <Text style={[styles.title, { color: colors.text }]}>Summary</Text>
+            <Text style={[styles.muted, { color: colors.textMuted }]}>Today's movement</Text>
+          </View>
+          <LevelBadge level={level} xp={xp} size="small" />
         </View>
         <View style={styles.headerRight}>
-          {/* Real-time activity pill — updates every 10s */}
-          <View style={[styles.activityPill, { borderColor: activityColor }]}>
-            <Text style={styles.activityIcon}>{activityIcon}</Text>
-            <Text style={[styles.activityLabel, { color: activityColor }]}>{activityLabel}</Text>
+          <View style={[styles.actPill, { borderColor: actColor }]}>
+            <Text style={styles.actIcon}>{actIcon}</Text>
+            <Text style={[styles.actLabel, { color: actColor }]}>{actLabel}</Text>
           </View>
-          <TouchableOpacity style={styles.gear} onPress={() => parent?.navigate('Goals')}>
+          <TouchableOpacity style={[styles.gear, { backgroundColor: colors.cardElevated, borderColor: colors.border }]} onPress={() => handleNavigate('Settings')} activeOpacity={0.8}>
             <Settings2 color={colors.accent} size={22} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* ── Map card ── */}
-      <TouchableOpacity activeOpacity={0.9} onPress={() => parent?.navigate('MapShare')}>
-        <Card style={styles.mapCard}>
+      <WeatherCard />
+
+      <TouchableOpacity activeOpacity={0.9} onPress={() => handleNavigate('MapShare')}>
+        <AnimatedCard style={styles.mapCard} delay={100}>
           <View style={styles.mapWrap}>
-            {hasRoute ? (
+            {hasRoute || currentLocation ? (
               <MapView
                 style={StyleSheet.absoluteFill}
-                initialRegion={mapRegion}
+                initialRegion={currentLocation ? regionForCoords([currentLocation]) : mapRegion}
                 scrollEnabled={false}
                 zoomEnabled={false}
                 pitchEnabled={false}
                 rotateEnabled={false}
-                mapType="standard"
+                customMapStyle={darkMapStyle}
+                userInterfaceStyle="dark"
               >
-                {daySessions.map((s) => (
-                  <Polyline
-                    key={s.id}
-                    coordinates={s.coords}
-                    strokeColor={colors.routeLine}
-                    strokeWidth={5}
-                    lineJoin="round"
-                  />
-                ))}
+                {/* Current location marker */}
+                {currentLocation && (
+                  <Marker
+                    coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <View style={[styles.currentLocationMarker, { backgroundColor: colors.accent, borderColor: colors.bg, shadowColor: colors.accent }]}>
+                      <MapPin color={colors.bg} size={20} strokeWidth={3} />
+                    </View>
+                  </Marker>
+                )}
+                {daySessions.map(s => {
+                  const segs = buildColoredPolylines(s.coords, s.startedAt, s.endedAt);
+                  return segs.map((seg, idx) => (
+                    <Polyline
+                      key={`${s.id}-${idx}`}
+                      coordinates={seg.coords}
+                      strokeColor={seg.color}
+                      strokeWidth={seg.strokeWidth}
+                      lineJoin="round"
+                      lineCap="round"
+                    />
+                  ));
+                })}
                 {waypoints.map((wp, idx) => (
                   <Marker
                     key={`wp-${idx}`}
@@ -159,134 +350,147 @@ export function HomeScreen() {
                     anchor={{ x: 0.5, y: 0.5 }}
                     tracksViewChanges={false}
                   >
-                    <View style={styles.waypointDot} />
+                    <View style={[styles.waypointDot, { backgroundColor: colors.routeLine }]} />
                   </Marker>
                 ))}
-                {startEnd ? (
+                {startEnd && (
                   <>
-                    <Marker coordinate={startEnd.start} title="Start" pinColor={colors.markerStart} />
-                    <Marker coordinate={startEnd.end} title="End" pinColor={colors.markerEnd} />
+                    <Marker
+                      coordinate={{ latitude: startEnd.start.latitude, longitude: startEnd.start.longitude }}
+                      anchor={{ x: 0.5, y: 0.5 }}
+                      tracksViewChanges={false}
+                    >
+                      <StartDot />
+                    </Marker>
+                    <Marker
+                      coordinate={{ latitude: startEnd.end.latitude, longitude: startEnd.end.longitude }}
+                      anchor={{ x: 0.5, y: 0.5 }}
+                      tracksViewChanges={false}
+                    >
+                      <EndDot />
+                    </Marker>
                   </>
-                ) : null}
+                )}
               </MapView>
             ) : (
               <View style={styles.mapEmpty}>
-                <Text style={styles.mapEmptyTxt}>Move with location on to draw today's route</Text>
+                <Text style={[styles.mapEmptyTxt, { color: colors.textMuted }]}>Enable location to see the map</Text>
               </View>
             )}
           </View>
           <View style={styles.mapStats}>
-            <Text style={styles.statLine}>
-              STEPS: <Text style={styles.statVal}>{today.steps.toLocaleString()}</Text>
-            </Text>
-            <Text style={styles.statLine}>
-              DISTANCE: <Text style={styles.statVal}>{todayKm.toFixed(1)} km</Text>
-            </Text>
-            <Text style={styles.statLine}>
-              CALORIES: <Text style={styles.statVal}>{burnKcal} kcal</Text>
-            </Text>
-            <Text style={styles.mapHint}>Tap for full map & share</Text>
+            <Text selectable style={[styles.statLine, { color: colors.textMuted }]}>STEPS: <Text style={[styles.statVal, { color: colors.accent }]}>{today.steps.toLocaleString()}</Text></Text>
+            <Text selectable style={[styles.statLine, { color: colors.textMuted }]}>DISTANCE: <Text style={[styles.statVal, { color: colors.accent }]}>{todayKm.toFixed(1)} km</Text></Text>
+            <Text selectable style={[styles.statLine, { color: colors.textMuted }]}>CALORIES: <Text style={[styles.statVal, { color: colors.accent }]}>{burnKcal} kcal</Text></Text>
+            <View style={styles.legendRow}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendLine, { backgroundColor: colors.routeLine }]} />
+                <Text style={[styles.legendTxt, { color: colors.textMuted }]}>Walk</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendLine, { backgroundColor: colors.routeVehicle }]} />
+                <Text style={[styles.legendTxt, { color: colors.textMuted }]}>Vehicle</Text>
+              </View>
+            </View>
+            <Text style={[styles.mapHint, { color: colors.accent }]}>Tap for full map</Text>
           </View>
-        </Card>
+        </AnimatedCard>
       </TouchableOpacity>
 
-      {/* ── Pauses ── */}
-      {pauses.length > 0 ? (
-        <Card>
-          <Text style={styles.pauseTitle}>Stops today (slow / still)</Text>
-          {pauses.map((p, i) => (
-            <Text key={`${p.startMs}-${i}`} style={styles.pauseRow}>
-              {formatPauseRange(p.startMs)} – {formatPauseRange(p.endMs)}
-            </Text>
-          ))}
-        </Card>
-      ) : null}
-
-      {/* ── Goals & donut ── */}
-      <Card style={styles.rowCard}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.muted2}>GOAL (KM)</Text>
-          <Text style={styles.rowBig}>{dailyGoalKm.toFixed(1)}</Text>
-          <Text style={styles.muted2}>BURNED (EST.)</Text>
-          <Text style={styles.rowBig}>{burnKcal}</Text>
-          <Text style={styles.muted2}>TARGET CAL</Text>
-          <Text style={styles.rowBig}>{dailyGoalCalories.toLocaleString()}</Text>
+      <AnimatedCard style={styles.ringsCard} delay={200}>
+        <View style={styles.ringsContainer}>
+          <View style={styles.ringsRow}>
+            <View style={styles.ringItem}>
+              <ActivityRing
+                value={today.steps}
+                maxValue={goalSteps}
+                color={colors.accent}
+                size={100}
+                stroke={12}
+                centerLabel={`${Math.max(0, goalSteps - today.steps).toLocaleString()}`}
+                centerSubLabel="left"
+              />
+              <Text style={[styles.ringLabel, { color: colors.textMuted }]}>Steps</Text>
+            </View>
+            <View style={styles.ringItem}>
+              <ActivityRing
+                value={todayKm}
+                maxValue={goalKm}
+                color="#FF4500"
+                size={100}
+                stroke={12}
+                centerLabel={`${Math.max(0, goalKm - todayKm).toFixed(1)}`}
+                centerSubLabel="km left"
+              />
+              <Text style={[styles.ringLabel, { color: colors.textMuted }]}>Distance</Text>
+            </View>
+            <View style={styles.ringItem}>
+              <ActivityRing
+                value={burnKcal}
+                maxValue={goalCal}
+                color="#00E676"
+                size={100}
+                stroke={12}
+                centerLabel={`${Math.max(0, goalCal - burnKcal)}`}
+                centerSubLabel="kcal left"
+              />
+              <Text style={[styles.ringLabel, { color: colors.textMuted }]}>Calories</Text>
+            </View>
+          </View>
         </View>
-        <DonutGoal
-          progress={calProgress}
-          centerLabel={`${remainingCal}`}
-          subLabel="CAL REMAINING"
-        />
-      </Card>
+      </AnimatedCard>
 
-      {/* ── Weekly bars with steps ── */}
-      <Card>
+      <AnimatedCard delay={300}>
         <View style={styles.weekHead}>
-          <Text style={styles.cardTitle}>Weekly distance</Text>
-          <Text style={styles.muted}>LAST 7 DAYS</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>Weekly distance</Text>
+          <Text style={[styles.muted, { color: colors.textMuted }]}>LAST 7 DAYS</Text>
         </View>
-        <WeeklyBars
-          labels={weekLabels}
-          values={weekKm}
-          steps={weekSteps}
-          goalKm={dailyGoalKm}
-          maxVal={maxWeek}
-        />
-      </Card>
+        <WeeklyBars labels={weekLabels} values={weekKm} steps={weekSteps} goalKm={goalKm} maxVal={maxWeek} />
+      </AnimatedCard>
+
+      {/* Custom Daily Goals Section */}
+      <View style={{ marginTop: 16 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>Daily Goals</Text>
+          <TouchableOpacity
+            style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}
+            onPress={handleOpenCreateGoal}
+            activeOpacity={0.8}
+          >
+            <Plus color={colors.bg} size={20} />
+          </TouchableOpacity>
+        </View>
+
+        {dailyGoals.length === 0 ? (
+          <TouchableOpacity
+            style={{ backgroundColor: colors.card, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', alignItems: 'center' }}
+            onPress={handleOpenCreateGoal}
+            activeOpacity={0.8}
+          >
+            <Plus color={colors.textMuted} size={32} />
+            <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '600', marginTop: 8 }}>Add your first daily goal</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 4 }}>Track custom habits that increase daily</Text>
+          </TouchableOpacity>
+        ) : (
+          dailyGoals.map(goal => (
+            <CustomGoalCard
+              key={goal.id}
+              goal={goal}
+              onComplete={handleGoalComplete}
+              onEdit={handleGoalEdit}
+              onDelete={handleGoalDelete}
+            />
+          ))
+        )}
+      </View>
+
+      {/* Goal Modal */}
+      <CustomGoalModal
+        visible={goalModalVisible}
+        onClose={() => { setGoalModalVisible(false); setEditingGoal(null); }}
+        onSave={handleGoalSave}
+        editGoal={editingGoal}
+      />
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingBottom: 32, paddingHorizontal: 16, gap: 14 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  title: { color: colors.text, fontSize: 28, fontWeight: '800' },
-  muted: { color: colors.textMuted, marginTop: 4, fontSize: 13 },
-  muted2: { color: colors.textMuted, fontSize: 11, marginTop: 10, fontWeight: '700' },
-  gear: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.cardElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  activityPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    backgroundColor: colors.cardElevated,
-    gap: 5,
-  },
-  activityIcon: { fontSize: 14 },
-  activityLabel: { fontSize: 12, fontWeight: '800' },
-  mapCard: { padding: 0, overflow: 'hidden' },
-  mapWrap: { height: 180, width: '100%', backgroundColor: colors.bg },
-  mapEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
-  mapEmptyTxt: { color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
-  mapStats: { padding: 16, gap: 4 },
-  statLine: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
-  statVal: { color: colors.accent },
-  mapHint: { color: colors.accent, fontSize: 12, marginTop: 8, fontWeight: '700' },
-  waypointDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.routeLine,
-    borderWidth: 1.5,
-    borderColor: '#fff',
-  },
-  pauseTitle: { color: colors.text, fontWeight: '800', marginBottom: 8, fontSize: 15 },
-  pauseRow: { color: colors.textMuted, marginBottom: 4, fontSize: 13 },
-  rowCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rowBig: { color: colors.text, fontSize: 22, fontWeight: '800' },
-  weekHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  cardTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
-});

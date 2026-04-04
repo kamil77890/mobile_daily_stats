@@ -3,12 +3,13 @@ import { StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ensureBackgroundWalkingStarted } from '../background/backgroundWalkingService';
-import { colors } from '../theme/colors';
+import { useThemeColors } from '../theme/ThemeContext';
 import { useAppStore } from '../store/useAppStore';
 
 type Props = { navigation: { goBack: () => void } };
 
 export function GoalsScreen({ navigation }: Props) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const dailyGoalKm = useAppStore((s) => s.dailyGoalKm);
   const dailyGoalCalories = useAppStore((s) => s.dailyGoalCalories);
@@ -18,24 +19,24 @@ export function GoalsScreen({ navigation }: Props) {
   const setBackgroundWalkingEnabled = useAppStore((s) => s.setBackgroundWalkingEnabled);
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg, paddingTop: insets.top + 8 }]}>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.cardElevated }]} onPress={() => navigation.goBack()}>
           <ChevronLeft color={colors.text} size={26} />
         </TouchableOpacity>
-        <Text style={styles.topTitle}>Daily goals</Text>
+        <Text style={[styles.topTitle, { color: colors.text }]}>Daily goals</Text>
         <View style={{ width: 44 }} />
       </View>
 
-      <Text style={styles.h1}>Distance & calories</Text>
-      <Text style={styles.sub}>
+      <Text style={[styles.h1, { color: colors.text }]}>Distance & calories</Text>
+      <Text style={[styles.sub, { color: colors.textMuted }]}>
         Distance defaults to 3 km per day. Calories power your summary ring target.
       </Text>
 
-      <View style={styles.bgRow}>
+      <View style={[styles.bgRow, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}>
         <View style={{ flex: 1, paddingRight: 12 }}>
-          <Text style={styles.bgTitle}>All-day walking (background)</Text>
-          <Text style={styles.bgSub}>
+          <Text style={[styles.bgTitle, { color: colors.text }]}>All-day walking (background)</Text>
+          <Text style={[styles.bgSub, { color: colors.textMuted }]}>
             Keeps GPS walking on automatically as Walking. Segments faster than ~25 km/h (car/train) are not
             counted toward km. Uses notifications on Android; iOS may ask for Always location. Pauses while you
             use Start workout.
@@ -53,36 +54,36 @@ export function GoalsScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.block}>
-        <Text style={styles.label}>KM / DAY</Text>
+        <Text style={[styles.label, { color: colors.text }]}>KM / DAY</Text>
         <View style={styles.stepRow}>
           <TouchableOpacity
-            style={styles.round}
+            style={[styles.round, { backgroundColor: colors.accent }]}
             onPress={() => setDailyGoalKm(dailyGoalKm + 0.5)}
           >
             <Plus color={colors.bg} size={28} strokeWidth={3} />
           </TouchableOpacity>
-          <Text style={styles.big}>{dailyGoalKm.toFixed(1)}</Text>
+          <Text style={[styles.big, { color: colors.text }]}>{dailyGoalKm.toFixed(1)}</Text>
           <TouchableOpacity
-            style={styles.round}
+            style={[styles.round, { backgroundColor: colors.accent }]}
             onPress={() => setDailyGoalKm(dailyGoalKm - 0.5)}
           >
-            <Minus color={colors.bg} size={28} strokeWidth={3} />
+            <Plus color={colors.bg} size={28} strokeWidth={3} />
           </TouchableOpacity>
         </View>
       </View>
 
       <View style={styles.block}>
-        <Text style={styles.label}>CALORIES / DAY (TARGET)</Text>
+        <Text style={[styles.label, { color: colors.text }]}>CALORIES / DAY (TARGET)</Text>
         <View style={styles.stepRow}>
           <TouchableOpacity
-            style={styles.round}
+            style={[styles.round, { backgroundColor: colors.accent }]}
             onPress={() => setDailyGoalCalories(dailyGoalCalories + 100)}
           >
             <Plus color={colors.bg} size={28} strokeWidth={3} />
           </TouchableOpacity>
-          <Text style={styles.big}>{dailyGoalCalories.toLocaleString()}</Text>
+          <Text style={[styles.big, { color: colors.text }]}>{dailyGoalCalories.toLocaleString()}</Text>
           <TouchableOpacity
-            style={styles.round}
+            style={[styles.round, { backgroundColor: colors.accent }]}
             onPress={() => setDailyGoalCalories(dailyGoalCalories - 100)}
           >
             <Minus color={colors.bg} size={28} strokeWidth={3} />
@@ -91,15 +92,15 @@ export function GoalsScreen({ navigation }: Props) {
       </View>
 
       <View style={{ flex: 1 }} />
-      <TouchableOpacity style={styles.primary} onPress={() => navigation.goBack()}>
-        <Text style={styles.primaryTxt}>Save</Text>
+      <TouchableOpacity style={[styles.primary, { backgroundColor: colors.accent }]} onPress={() => navigation.goBack()}>
+        <Text style={[styles.primaryTxt, { color: colors.bg }]}>Save</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 20 },
+  root: { flex: 1, paddingHorizontal: 20 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -110,29 +111,25 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.cardElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topTitle: { color: colors.text, fontWeight: '700', fontSize: 14 },
-  h1: { color: colors.text, fontSize: 28, fontWeight: '800' },
-  sub: { color: colors.textMuted, marginTop: 10, lineHeight: 20, marginBottom: 16 },
+  topTitle: { fontWeight: '700', fontSize: 14 },
+  h1: { fontSize: 28, fontWeight: '800' },
+  sub: { marginTop: 10, lineHeight: 20, marginBottom: 16 },
   bgRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 24,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: colors.cardElevated,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border,
   },
-  bgTitle: { color: colors.text, fontWeight: '800', fontSize: 15 },
-  bgSub: { color: colors.textMuted, fontSize: 12, marginTop: 6, lineHeight: 18 },
+  bgTitle: { fontWeight: '800', fontSize: 15 },
+  bgSub: { fontSize: 12, marginTop: 6, lineHeight: 18 },
   block: { marginBottom: 32 },
   label: {
-    color: colors.text,
     fontWeight: '800',
     letterSpacing: 1,
     fontSize: 12,
@@ -149,17 +146,15 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  big: { color: colors.text, fontSize: 40, fontWeight: '800' },
+  big: { fontSize: 40, fontWeight: '800' },
   primary: {
     marginBottom: 24,
-    backgroundColor: colors.accent,
     paddingVertical: 16,
     borderRadius: 999,
     alignItems: 'center',
   },
-  primaryTxt: { color: colors.bg, fontWeight: '900', fontSize: 16 },
+  primaryTxt: { fontWeight: '900', fontSize: 16 },
 });

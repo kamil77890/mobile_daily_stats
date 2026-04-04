@@ -8,9 +8,17 @@ module.exports = function appConfig() {
   const apiKey =
     process.env.GOOGLE_MAPS_API_KEY ?? process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
+  const openWeatherApiKey = process.env.OPENWEATHER_API_KEY ?? '';
+
   if (!apiKey && process.env.EAS_BUILD === 'true') {
     console.warn(
       '\n[app.config] Missing GOOGLE_MAPS_API_KEY. Set EAS secret or maps will crash.\n',
+    );
+  }
+
+  if (!openWeatherApiKey) {
+    console.log(
+      '\n[app.config] OPENWEATHER_API_KEY not set. Weather will show error. Add to .env\n',
     );
   }
 
@@ -29,6 +37,7 @@ module.exports = function appConfig() {
       },
       ios: {
         supportsTablet: true,
+        bundleIdentifier: 'com.kamjak7786.mobiledailystats',
         infoPlist: {
           NSMotionUsageDescription: 'Motion is used to count your steps for daily stats.',
           NSLocationWhenInUseUsageDescription:
@@ -91,6 +100,7 @@ module.exports = function appConfig() {
         eas: {
           projectId: 'ca9b47d2-5a14-4ca5-acc8-de157f75464b',
         },
+        openWeatherApiKey,
       },
     },
   };

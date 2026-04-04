@@ -2,8 +2,8 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { Activity, BarChart2, Clock, Home, ListChecks } from 'lucide-react-native';
-import { useEffect } from 'react';
+import { BarChart2, Clock, Home, Settings as SettingsIcon } from 'lucide-react-native';
+import { useEffect, useMemo } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -24,55 +24,66 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { MapShareScreen } from './src/screens/MapShareScreen';
 import { PlanScreen } from './src/screens/PlanScreen';
 import { SessionEditScreen } from './src/screens/SessionEditScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StatsScreen } from './src/screens/StatsScreen';
 import { TrackScreen } from './src/screens/TrackScreen';
 import { useAppStore } from './src/store/useAppStore';
-import { colors } from './src/theme/colors';
+import { ThemeProvider, useThemeColors } from './src/theme/ThemeContext';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { colors, getColorsWithAccentHex } from './src/theme/colors';
+import { ACCENT_COLOR_VALUES } from './src/theme/accentColors';
 import { dayKey } from './src/utils/dates';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const navTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: colors.bg,
-    card: colors.bg,
-    text: colors.text,
-    border: colors.border,
-    primary: colors.accent,
-  },
-};
+function DynamicTheme({ children }: { children: React.ReactNode }) {
+  const themeColors = useThemeColors();
+  
+  const navTheme = useMemo(() => ({
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      background: themeColors.bg,
+      card: themeColors.bg,
+      text: themeColors.text,
+      border: themeColors.border,
+      primary: themeColors.accent,
+    },
+  }), [themeColors]);
+
+  return (
+    <NavigationContainer theme={navTheme}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: themeColors.bg }}>
+        <StatusBar style="light" />
+        {children}
+      </GestureHandlerRootView>
+    </NavigationContainer>
+  );
+}
 
 function MainTabs() {
+  const themeColors = useThemeColors();
+  
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: colors.bg,
-          borderTopColor: colors.border,
+          backgroundColor: themeColors.bg,
+          borderTopColor: themeColors.border,
         },
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveTintColor: themeColors.accent,
+        tabBarInactiveTintColor: themeColors.textMuted,
         tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
       }}
     >
       <Tab.Screen
-        name="Home"
+        name="Summary"
         component={HomeScreen}
         options={{
           tabBarLabel: 'Summary',
           tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
-        }}
-      />
-      <Tab.Screen
-        name="Track"
-        component={TrackScreen}
-        options={{
-          tabBarLabel: 'Track',
-          tabBarIcon: ({ color, size }) => <Activity color={color} size={size} />,
         }}
       />
       <Tab.Screen
@@ -92,11 +103,11 @@ function MainTabs() {
         }}
       />
       <Tab.Screen
-        name="Plan"
-        component={PlanScreen}
+        name="Settings"
+        component={SettingsScreen}
         options={{
-          tabBarLabel: 'Plan',
-          tabBarIcon: ({ color, size }) => <ListChecks color={color} size={size} />,
+          tabBarLabel: 'Settings',
+          tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} />,
         }}
       />
     </Tab.Navigator>
@@ -104,11 +115,13 @@ function MainTabs() {
 }
 
 function RootStack() {
+  const themeColors = useThemeColors();
+  
   return (
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: colors.bg },
+        contentStyle: { backgroundColor: themeColors.bg },
       }}
     >
       <Stack.Screen name="MainTabs" component={MainTabs} />
@@ -134,24 +147,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void refreshWalkingStatsNotificationFromStore();
+    refreshWalkingStatsNotificationFromStore().catch((err) => {
+      console.error('[App] Notification refresh failed:', err);
+    });
   }, [statsTick]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      void refreshWalkingStatsNotificationFromStore();
+      refreshWalkingStatsNotificationFromStore().catch(() => {
+        // Silently fail - will retry on next interval
+      });
     }, 5_000);
     return () => clearInterval(interval);
   }, []);
 
   // ── Initial hydration ─────────────────────────────────────────────
   useEffect(() => {
-    const runDaily = () => {
+    const runDaily = async () => {
       const key = dayKey();
       useAppStore.getState().recomputeHistoryForDay(key);
-      void syncBackgroundWalkingSessionsFromStorage();
-      void ensureBackgroundWalkingStarted();
-      void refreshWalkingStatsNotificationFromStore();
+      try {
+        await syncBackgroundWalkingSessionsFromStorage();
+        await ensureBackgroundWalkingStarted();
+        await refreshWalkingStatsNotificationFromStore();
+      } catch (err) {
+        console.error('[App] Initial hydration failed:', err);
+      }
     };
     const unsub = useAppStore.persist.onFinishHydration(runDaily);
     if (useAppStore.persist.hasHydrated()) {
@@ -162,11 +183,15 @@ export default function App() {
 
   // ── App foreground transitions ────────────────────────────────────
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
+    const sub = AppState.addEventListener('change', async (next) => {
       if (next === 'active') {
-        void syncBackgroundWalkingSessionsFromStorage();
-        void ensureBackgroundWalkingStarted();
-        void refreshWalkingStatsNotificationFromStore();
+        try {
+          await syncBackgroundWalkingSessionsFromStorage();
+          await ensureBackgroundWalkingStarted();
+          await refreshWalkingStatsNotificationFromStore();
+        } catch (err) {
+          console.error('[App] Foreground transition failed:', err);
+        }
       }
     });
     return () => sub.remove();
@@ -175,7 +200,9 @@ export default function App() {
   // ── Sync GPS data every 30 seconds (feeds activity status hook) ───
   useEffect(() => {
     const id = setInterval(() => {
-      void syncBackgroundWalkingSessionsFromStorage();
+      syncBackgroundWalkingSessionsFromStorage().catch(() => {
+        // Silently fail - will retry on next interval
+      });
     }, 30_000);
     return () => clearInterval(id);
   }, []);
@@ -184,17 +211,20 @@ export default function App() {
   //    Day 06-23 → 1-min interval   Night 23-06 → 10-min interval
   useEffect(() => {
     const id = setInterval(() => {
-      void restartBackgroundWalkingIfPeriodChanged();
+      restartBackgroundWalkingIfPeriodChanged().catch((err) => {
+        console.error('[App] Background walking restart failed:', err);
+      });
     }, 5 * 60_000);
     return () => clearInterval(id);
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <NavigationContainer theme={navTheme}>
-        <StatusBar style="light" />
-        <RootStack />
-      </NavigationContainer>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <DynamicTheme>
+          <RootStack />
+        </DynamicTheme>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

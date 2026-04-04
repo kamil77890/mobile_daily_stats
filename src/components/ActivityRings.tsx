@@ -1,52 +1,50 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedProps,
   withSpring,
-  withDelay,
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
 import { useThemeColors } from '../theme/ThemeContext';
 
-// Create animated circle component
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 type Props = {
-  progress: number;
-  centerLabel: string;
-  subLabel?: string;
+  value: number;
+  maxValue: number;
+  color: string;
   size?: number;
   stroke?: number;
-  animated?: boolean;
+  rotation?: number;
+  centerLabel?: string;
+  centerSubLabel?: string;
 };
 
-export function DonutGoal({
-  progress,
+export function ActivityRing({
+  value,
+  maxValue,
+  color,
+  size = 100,
+  stroke = 12,
+  rotation = 0,
   centerLabel,
-  subLabel,
-  size = 140,
-  stroke = 14,
-  animated = true,
+  centerSubLabel,
 }: Props) {
   const colors = useThemeColors();
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const targetProgress = Math.min(1, Math.max(0, progress));
-  
+  const progress = useMemo(() => Math.min(1, Math.max(0, value / maxValue)), [value, maxValue]);
+
   const animatedProgress = useSharedValue(0);
 
   useEffect(() => {
-    if (animated) {
-      animatedProgress.value = withDelay(
-        200,
-        withSpring(targetProgress, { damping: 15, stiffness: 80 })
-      );
-    } else {
-      animatedProgress.value = targetProgress;
-    }
-  }, [targetProgress, animated]);
+    const timeoutId = setTimeout(() => {
+      animatedProgress.value = withSpring(progress, { damping: 15, stiffness: 80 });
+    }, 100);
+    return () => clearTimeout(timeoutId);
+  }, [progress]);
 
   const animatedProps = useAnimatedProps(() => ({
     strokeDasharray: [c * animatedProgress.value, c],
@@ -55,22 +53,20 @@ export function DonutGoal({
   return (
     <View style={{ width: size, height: size }}>
       <Svg width={size} height={size}>
-        {/* Background circle */}
         <Circle
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke={colors.border}
+          stroke={color + '33'}
           strokeWidth={stroke}
           fill="none"
         />
-        {/* Animated progress circle */}
         <AnimatedCircle
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          transform={`rotate(${rotation - 90} ${size / 2} ${size / 2})`}
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke={colors.accent}
+          stroke={color}
           strokeWidth={stroke}
           fill="none"
           strokeDasharray={`${c}, ${c}`}
@@ -78,27 +74,28 @@ export function DonutGoal({
           strokeLinecap="round"
         />
       </Svg>
-      <View style={[StyleSheet.absoluteFill, styles.center]}>
-        <Text style={[styles.centerText, { color: colors.text }]}>{centerLabel}</Text>
-        {subLabel ? <Text style={[styles.sub, { color: colors.textMuted }]}>{subLabel}</Text> : null}
-      </View>
+      {(centerLabel || centerSubLabel) && (
+        <View style={[StyleSheet.absoluteFill, styles.center]}>
+          {centerLabel && <Text style={[styles.centerLabel, { color }]}>{centerLabel}</Text>}
+          {centerSubLabel && <Text style={{ color: colors.textMuted, fontSize: 9, fontWeight: '700', textAlign: 'center', marginTop: 2 }}>{centerSubLabel}</Text>}
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   center: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  centerText: {
-    fontWeight: '800',
+  centerLabel: {
+    fontWeight: '900',
     fontSize: 16,
-    textAlign: 'center',
-  },
-  sub: {
-    fontSize: 11,
-    marginTop: 4,
     textAlign: 'center',
   },
 });

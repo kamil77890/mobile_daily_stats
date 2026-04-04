@@ -3,12 +3,16 @@ export type RootStackParamList = {
   Goals: undefined;
   MapShare: undefined;
   SessionEdit: { sessionId: string };
+  Settings: undefined;
+  Analytics: undefined;
+  Track: undefined;
+  Plan: undefined;
+  Achievements: undefined;
 };
 
 export type MainTabParamList = {
-  Home: undefined;
-  Track: undefined;
+  Summary: undefined;
   Stats: undefined;
   Timeline: undefined;
-  Plan: undefined;
+  Settings: undefined;
 };

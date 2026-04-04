@@ -32,6 +32,21 @@ export type UserTask = {
   createdAt: number;
 };
 
+/**
+ * Custom daily goal that increases its target each day.
+ * Used for things like "do 50 push-ups daily, increase by 5 each day".
+ */
+export type DailyGoal = {
+  id: string;
+  name: string;
+  targetValue: number;      // current target (increases daily)
+  currentValue: number;     // today's progress (resets when completed)
+  dailyIncrement: number;   // how much target increases each day
+  unit: string;             // e.g., "push-ups", "km", "minutes"
+  createdAt: number;        // epoch ms
+  lastCompletedDate: string | null; // dayKey of last completion
+};
+
 export const EXERCISE_TYPES = [
   'Walking',
   'Running',
