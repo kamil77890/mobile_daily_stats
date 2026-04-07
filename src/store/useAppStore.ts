@@ -304,15 +304,20 @@ export const useAppStore = create<AppState>()(
           return {
             dailyGoals: s.dailyGoals.map((g) => {
               if (g.id !== id) return g;
-              // Increase target by daily increment for next day
-              const newTarget = g.targetValue + g.dailyIncrement;
+              // Prevent double-completion on the same day
+              if (g.lastCompletedDate === today) return g;
+              // Mark as completed: set currentValue to targetValue for 100% bar
               return {
                 ...g,
-                currentValue: 0, // Reset progress
-                targetValue: newTarget,
+                currentValue: g.targetValue, // Show 100% progress
                 lastCompletedDate: today,
               };
             }),
+            gamification: {
+              ...s.gamification,
+              totalGoalsMet: s.gamification.totalGoalsMet + 1,
+              xp: s.gamification.xp + 25, // Reward XP for completing a goal
+            },
           };
         }),
 
@@ -321,7 +326,7 @@ export const useAppStore = create<AppState>()(
           const today = dayKey();
           return {
             dailyGoals: s.dailyGoals.map((g) => {
-              // If already completed today, don't increment
+              // If already completed today, don't increment or reset
               if (g.lastCompletedDate === today) return g;
               // Calculate days since last completion (or since creation)
               const lastDate = g.lastCompletedDate ?? dayKey(new Date(g.createdAt));
@@ -331,12 +336,13 @@ export const useAppStore = create<AppState>()(
               const todayObj = new Date(ty, tm - 1, td);
               const daysDiff = Math.floor((todayObj.getTime() - lastDateObj.getTime()) / (1000 * 60 * 60 * 24));
               if (daysDiff <= 0) return g;
-              // Increment target for each missed day
+              // Increment target for each missed day and reset progress
               const newTarget = g.targetValue + g.dailyIncrement * daysDiff;
               return {
                 ...g,
                 targetValue: newTarget,
                 currentValue: 0, // Reset progress for new day
+                lastCompletedDate: null, // Reset completion status
               };
             }),
           };

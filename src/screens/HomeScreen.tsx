@@ -1,12 +1,13 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Settings2, MapPin, Plus } from 'lucide-react-native';
-import { useMemo, useState, useEffect } from 'react';
+import { ChevronDown, ChevronUp, MapPin, Plus, Settings2 } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimatedCard } from '../components/AnimatedCard';
+import { InlineMapDaySelector } from '../components/InlineMapDaySelector';
 import { LevelBadge } from '../components/LevelBadge';
 import { WeatherCard } from '../components/WeatherCard';
 import { ActivityRing } from '../components/ActivityRings';
@@ -14,7 +15,7 @@ import { WeeklyBars } from '../components/WeeklyBars';
 import { CustomGoalModal } from '../components/CustomGoalModal';
 import { CustomGoalCard } from '../components/CustomGoalCard';
 import { useActivityStatus } from '../hooks/useActivityStatus';
-import type { RootStackParamList } from '../navigation/types';
+import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
 import type { Coord, DailyGoal } from '../store/types';
 import { useThemeColors } from '../theme/ThemeContext';
@@ -62,7 +63,6 @@ export function HomeScreen() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-  const parent = nav.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined;
   const dk = dayKey();
   const history = useAppStore(s => s.history);
   const sessions = useAppStore(s => s.sessions);
@@ -74,6 +74,12 @@ export function HomeScreen() {
   const xp = useAppStore(s => s.gamification.xp);
 
   const [currentLocation, setCurrentLocation] = useState<Coord | null>(null);
+
+  // Map expansion state
+  const [mapExpanded, setMapExpanded] = useState(false);
+
+  // Map day selection state (defaults to today)
+  const [mapDayKey, setMapDayKey] = useState(() => dayKey());
 
   // Custom goals state
   const dailyGoals = useAppStore(s => s.dailyGoals);
@@ -138,41 +144,60 @@ export function HomeScreen() {
         }
       } catch (err) {
         console.log('Location fetch error:', err);
+        
       }
     };
 
     getCurrentLocation();
-    const interval = setInterval(getCurrentLocation, 60000);
+    const interval = setInterval(getCurrentLocation, 120000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
   }, []);
 
-  const handleNavigate = (screen: keyof RootStackParamList) => {
-    const rootNav = nav.getParent()?.getParent();
+  const handleNavigate = useCallback((screen: keyof RootStackParamList) => {
+    const rootNav = nav.getParent();
     if (rootNav && 'navigate' in rootNav) {
       (rootNav as any).navigate(screen);
     }
-  };
+  }, [nav]);
 
-  const today = history[dk] ?? { steps: 0, distanceM: 0, kcal: 0, inclineM: 0, goalMet: false };
+  const handleNavigateToTab = useCallback((tabName: keyof MainTabParamList) => {
+    const rootNav = nav.getParent();
+    if (rootNav && 'navigate' in rootNav) {
+      (rootNav as any).navigate('MainTabs', { screen: tabName });
+    }
+  }, [nav]);
 
-  const daySessions = useMemo(
-    () => [...sessions].filter(s => s.dayKey === dk).sort((a, b) => a.startedAt - b.startedAt),
-    [sessions, dk],
+  // ── Map data computed from selected map day ─────────────────────
+  const mapDaySessions = useMemo(
+    () => [...sessions].filter(s => s.dayKey === mapDayKey).sort((a, b) => a.startedAt - b.startedAt),
+    [sessions, mapDayKey],
   );
-  const mergedCoords = useMemo(() => daySessions.flatMap(s => s.coords), [daySessions]);
+  const mergedCoords = useMemo(() => mapDaySessions.flatMap(s => s.coords), [mapDaySessions]);
   const mapRegion = useMemo(() => regionForCoords(mergedCoords), [mergedCoords]);
   const waypoints = useMemo(() => getWaypoints(mergedCoords, 20_000), [mergedCoords]);
 
   const startEnd = useMemo(() => {
-    if (!daySessions.length) return null;
-    const first = daySessions[0].coords[0];
-    const lastS = daySessions[daySessions.length - 1];
+    if (!mapDaySessions.length) return null;
+    const first = mapDaySessions[0].coords[0];
+    const lastS = mapDaySessions[mapDaySessions.length - 1];
     const last = lastS.coords[lastS.coords.length - 1];
     return first && last ? { start: first, end: last } : null;
-  }, [daySessions]);
+  }, [mapDaySessions]);
+
+  const hasRoute = mergedCoords.length > 1;
+
+  const handleDaySelect = useCallback((newDk: string) => {
+    setMapDayKey(newDk);
+  }, []);
+
+  const toggleMapExpanded = useCallback(() => {
+    setMapExpanded(prev => !prev);
+  }, []);
+
+  const today = history[dk] ?? { steps: 0, distanceM: 0, kcal: 0, inclineM: 0, goalMet: false };
 
   const weekKeys = useMemo(() => lastNDayKeys(7), []);
   const weekKm = weekKeys.map(k => (history[k]?.distanceM ?? 0) / 1000);
@@ -182,7 +207,6 @@ export function HomeScreen() {
 
   const todayKm = today.distanceM / 1000;
   const burnKcal = kcalFromWalk(todayKm, today.steps);
-  const hasRoute = mergedCoords.length > 1;
 
   const actColor =
     actStatus === 'walking' ? '#39FF14' :
@@ -222,9 +246,13 @@ export function HomeScreen() {
 
     mapCard: { padding: 0, overflow: 'hidden' },
     mapWrap: { height: 190, width: '100%', backgroundColor: '#111' },
+    mapWrapExpanded: { height: 400, width: '100%', backgroundColor: '#111' },
     mapEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
     mapEmptyTxt: { textAlign: 'center', lineHeight: 20 },
     mapStats: { padding: 16, gap: 4 },
+    mapHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
+    mapHeaderTitle: { fontSize: 14, fontWeight: '800' },
+    mapExpandBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
     statLine: { fontSize: 13, fontWeight: '700' },
     statVal: {},
 
@@ -296,7 +324,7 @@ export function HomeScreen() {
             <Text style={styles.actIcon}>{actIcon}</Text>
             <Text style={[styles.actLabel, { color: actColor }]}>{actLabel}</Text>
           </View>
-          <TouchableOpacity style={[styles.gear, { backgroundColor: colors.cardElevated, borderColor: colors.border }]} onPress={() => handleNavigate('Settings')} activeOpacity={0.8}>
+          <TouchableOpacity style={[styles.gear, { backgroundColor: colors.cardElevated, borderColor: colors.border }]} onPress={() => handleNavigateToTab('Settings')} activeOpacity={0.8}>
             <Settings2 color={colors.accent} size={22} />
           </TouchableOpacity>
         </View>
@@ -304,84 +332,124 @@ export function HomeScreen() {
 
       <WeatherCard />
 
-      <TouchableOpacity activeOpacity={0.9} onPress={() => handleNavigate('MapShare')}>
-        <AnimatedCard style={styles.mapCard} delay={100}>
-          <View style={styles.mapWrap}>
-            {hasRoute || currentLocation ? (
-              <MapView
-                style={StyleSheet.absoluteFill}
-                initialRegion={currentLocation ? regionForCoords([currentLocation]) : mapRegion}
-                scrollEnabled={false}
-                zoomEnabled={false}
-                pitchEnabled={false}
-                rotateEnabled={false}
-                customMapStyle={darkMapStyle}
-                userInterfaceStyle="dark"
+      {/* Interactive Map Card */}
+      <AnimatedCard style={styles.mapCard} delay={100}>
+        {/* Map header (always visible) */}
+        <View style={styles.mapHeader}>
+          <Text style={[styles.mapHeaderTitle, { color: colors.text }]}>
+            {mapDayKey === dk ? 'Today\'s Route' : parseDayKey(mapDayKey).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <TouchableOpacity
+              style={[styles.mapExpandBtn, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}
+              onPress={toggleMapExpanded}
+              activeOpacity={0.8}
+            >
+              {mapExpanded ? <ChevronUp color={colors.accent} size={18} /> : <ChevronDown color={colors.accent} size={18} />}
+            </TouchableOpacity>
+            {!mapExpanded && (
+              <TouchableOpacity
+                style={[styles.mapExpandBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}
+                onPress={() => handleNavigate('MapShare')}
+                activeOpacity={0.8}
               >
-                {/* Current location marker */}
-                {currentLocation && (
-                  <Marker
-                    coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                    tracksViewChanges={false}
-                  >
-                    <View style={[styles.currentLocationMarker, { backgroundColor: colors.accent, borderColor: colors.bg, shadowColor: colors.accent }]}>
-                      <MapPin color={colors.bg} size={20} strokeWidth={3} />
-                    </View>
-                  </Marker>
-                )}
-                {daySessions.map(s => {
-                  const segs = buildColoredPolylines(s.coords, s.startedAt, s.endedAt);
-                  return segs.map((seg, idx) => (
-                    <Polyline
-                      key={`${s.id}-${idx}`}
-                      coordinates={seg.coords}
-                      strokeColor={seg.color}
-                      strokeWidth={seg.strokeWidth}
-                      lineJoin="round"
-                      lineCap="round"
-                    />
-                  ));
-                })}
-                {waypoints.map((wp, idx) => (
-                  <Marker
-                    key={`wp-${idx}`}
-                    coordinate={wp}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                    tracksViewChanges={false}
-                  >
-                    <View style={[styles.waypointDot, { backgroundColor: colors.routeLine }]} />
-                  </Marker>
-                ))}
-                {startEnd && (
-                  <>
-                    <Marker
-                      coordinate={{ latitude: startEnd.start.latitude, longitude: startEnd.start.longitude }}
-                      anchor={{ x: 0.5, y: 0.5 }}
-                      tracksViewChanges={false}
-                    >
-                      <StartDot />
-                    </Marker>
-                    <Marker
-                      coordinate={{ latitude: startEnd.end.latitude, longitude: startEnd.end.longitude }}
-                      anchor={{ x: 0.5, y: 0.5 }}
-                      tracksViewChanges={false}
-                    >
-                      <EndDot />
-                    </Marker>
-                  </>
-                )}
-              </MapView>
-            ) : (
-              <View style={styles.mapEmpty}>
-                <Text style={[styles.mapEmptyTxt, { color: colors.textMuted }]}>Enable location to see the map</Text>
-              </View>
+                <MapPin color={colors.bg} size={16} />
+              </TouchableOpacity>
             )}
           </View>
+        </View>
+
+        {/* Day selector (visible when expanded) */}
+        {mapExpanded && (
+          <InlineMapDaySelector
+            selectedDayKey={mapDayKey}
+            onDaySelect={handleDaySelect}
+            history={history}
+          />
+        )}
+
+        {/* Map view */}
+        <View style={mapExpanded ? styles.mapWrapExpanded : styles.mapWrap}>
+          {hasRoute || currentLocation ? (
+            <MapView
+              style={StyleSheet.absoluteFill}
+              initialRegion={currentLocation && mapDayKey === dk ? regionForCoords([currentLocation]) : mapRegion}
+              scrollEnabled={mapExpanded}
+              zoomEnabled={mapExpanded}
+              pitchEnabled={false}
+              rotateEnabled={false}
+              customMapStyle={darkMapStyle}
+              userInterfaceStyle="dark"
+            >
+              {/* Current location marker (only on today's map) */}
+              {currentLocation && mapDayKey === dk && (
+                <Marker
+                  coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  tracksViewChanges={false}
+                >
+                  <View style={[styles.currentLocationMarker, { backgroundColor: colors.accent, borderColor: colors.bg, shadowColor: colors.accent }]}>
+                    <MapPin color={colors.bg} size={20} strokeWidth={3} />
+                  </View>
+                </Marker>
+              )}
+              {mapDaySessions.map(s => {
+                const segs = buildColoredPolylines(s.coords, s.startedAt, s.endedAt);
+                return segs.map((seg, idx) => (
+                  <Polyline
+                    key={`${s.id}-${idx}`}
+                    coordinates={seg.coords}
+                    strokeColor={seg.color}
+                    strokeWidth={seg.strokeWidth}
+                    lineJoin="round"
+                    lineCap="round"
+                  />
+                ));
+              })}
+              {waypoints.map((wp, idx) => (
+                <Marker
+                  key={`wp-${idx}`}
+                  coordinate={wp}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  tracksViewChanges={false}
+                >
+                  <View style={[styles.waypointDot, { backgroundColor: colors.routeLine }]} />
+                </Marker>
+              ))}
+              {startEnd && (
+                <>
+                  <Marker
+                    coordinate={{ latitude: startEnd.start.latitude, longitude: startEnd.start.longitude }}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <StartDot />
+                  </Marker>
+                  <Marker
+                    coordinate={{ latitude: startEnd.end.latitude, longitude: startEnd.end.longitude }}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <EndDot />
+                  </Marker>
+                </>
+              )}
+            </MapView>
+          ) : (
+            <View style={styles.mapEmpty}>
+              <Text style={[styles.mapEmptyTxt, { color: colors.textMuted }]}>
+                {mapDayKey === dk ? 'Enable location to see the map' : 'No route data for this day'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Map stats (only when not expanded) */}
+        {!mapExpanded && (
           <View style={styles.mapStats}>
-            <Text selectable style={[styles.statLine, { color: colors.textMuted }]}>STEPS: <Text style={[styles.statVal, { color: colors.accent }]}>{today.steps.toLocaleString()}</Text></Text>
-            <Text selectable style={[styles.statLine, { color: colors.textMuted }]}>DISTANCE: <Text style={[styles.statVal, { color: colors.accent }]}>{todayKm.toFixed(1)} km</Text></Text>
-            <Text selectable style={[styles.statLine, { color: colors.textMuted }]}>CALORIES: <Text style={[styles.statVal, { color: colors.accent }]}>{burnKcal} kcal</Text></Text>
+            <Text style={[styles.statLine, { color: colors.textMuted }]}>STEPS: <Text style={[styles.statVal, { color: colors.accent }]}>{today.steps.toLocaleString()}</Text></Text>
+            <Text style={[styles.statLine, { color: colors.textMuted }]}>DISTANCE: <Text style={[styles.statVal, { color: colors.accent }]}>{todayKm.toFixed(1)} km</Text></Text>
+            <Text style={[styles.statLine, { color: colors.textMuted }]}>CALORIES: <Text style={[styles.statVal, { color: colors.accent }]}>{burnKcal} kcal</Text></Text>
             <View style={styles.legendRow}>
               <View style={styles.legendItem}>
                 <View style={[styles.legendLine, { backgroundColor: colors.routeLine }]} />
@@ -392,10 +460,10 @@ export function HomeScreen() {
                 <Text style={[styles.legendTxt, { color: colors.textMuted }]}>Vehicle</Text>
               </View>
             </View>
-            <Text style={[styles.mapHint, { color: colors.accent }]}>Tap for full map</Text>
+            <Text style={[styles.mapHint, { color: colors.accent }]}>Tap ↑ to expand, or pin for full map</Text>
           </View>
-        </AnimatedCard>
-      </TouchableOpacity>
+        )}
+      </AnimatedCard>
 
       <AnimatedCard style={styles.ringsCard} delay={200}>
         <View style={styles.ringsContainer}>

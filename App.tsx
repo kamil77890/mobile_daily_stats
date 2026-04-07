@@ -3,7 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { BarChart2, Clock, Home, Settings as SettingsIcon } from 'lucide-react-native';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useCallback } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -18,6 +18,8 @@ import {
   refreshWalkingStatsNotificationFromStore,
 } from './src/notifications/walkingStatsNotification';
 import type { MainTabParamList, RootStackParamList } from './src/navigation/types';
+import { AchievementsScreen } from './src/screens/AchievementsScreen';
+import { AnalyticsScreen } from './src/screens/AnalyticsScreen';
 import { DailyTimelineScreen } from './src/screens/DailyTimelineScreen';
 import { GoalsScreen } from './src/screens/GoalsScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -128,12 +130,28 @@ function RootStack() {
       <Stack.Screen name="Goals" component={GoalsScreen} />
       <Stack.Screen name="MapShare" component={MapShareScreen} />
       <Stack.Screen name="SessionEdit" component={SessionEditScreen} />
+      <Stack.Screen name="Track" component={TrackScreen} />
+      <Stack.Screen name="Plan" component={PlanScreen} />
+      <Stack.Screen name="Achievements" component={AchievementsScreen} />
+      <Stack.Screen name="Analytics" component={AnalyticsScreen} />
     </Stack.Navigator>
   );
 }
 
 export default function App() {
   usePedometerSync();
+
+  // Debounce guard for notification refresh
+  const lastNotifRefreshRef = useRef(0);
+  const safeNotifRefresh = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastNotifRefreshRef.current < 3000) return; // Skip if < 3s since last refresh
+    lastNotifRefreshRef.current = now;
+    await refreshWalkingStatsNotificationFromStore();
+  }, []);
+
+  // Pending flag for GPS sync to prevent overlapping calls
+  const gpsSyncPendingRef = useRef(false);
 
   const statsTick = useAppStore((s) => {
     const key = dayKey();
@@ -154,7 +172,7 @@ export default function App() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      refreshWalkingStatsNotificationFromStore().catch(() => {
+      safeNotifRefresh().catch(() => {
         // Silently fail - will retry on next interval
       });
     }, 5_000);
@@ -200,9 +218,15 @@ export default function App() {
   // ── Sync GPS data every 30 seconds (feeds activity status hook) ───
   useEffect(() => {
     const id = setInterval(() => {
-      syncBackgroundWalkingSessionsFromStorage().catch(() => {
-        // Silently fail - will retry on next interval
-      });
+      if (gpsSyncPendingRef.current) return; // Skip if previous call still pending
+      gpsSyncPendingRef.current = true;
+      syncBackgroundWalkingSessionsFromStorage()
+        .catch(() => {
+          // Silently fail - will retry on next interval
+        })
+        .finally(() => {
+          gpsSyncPendingRef.current = false;
+        });
     }, 30_000);
     return () => clearInterval(id);
   }, []);

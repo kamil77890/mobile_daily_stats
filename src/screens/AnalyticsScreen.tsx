@@ -453,42 +453,46 @@ export function AnalyticsScreen() {
 }
 
 function StatItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  const colors = useThemeColors();
   return (
     <View style={{ alignItems: 'center', flex: 1 }}>
       <View style={{ marginBottom: 8 }}>{icon}</View>
-      <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>{value}</Text>
-      <Text style={{ fontSize: 10, fontWeight: '700', color: '#9a9a9a', marginTop: 4 }}>{label}</Text>
+      <Text style={{ fontSize: 18, fontWeight: '900', color: colors.text }}>{value}</Text>
+      <Text style={{ fontSize: 10, fontWeight: '700', color: colors.textMuted, marginTop: 4 }}>{label}</Text>
     </View>
   );
 }
 
 function AvgItem({ label, value }: { label: string; value: string }) {
+  const colors = useThemeColors();
   return (
     <View style={{ alignItems: 'center' }}>
-      <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>{value}</Text>
-      <Text style={{ fontSize: 10, fontWeight: '700', color: '#9a9a9a', marginTop: 4 }}>{label}</Text>
+      <Text style={{ fontSize: 18, fontWeight: '900', color: colors.text }}>{value}</Text>
+      <Text style={{ fontSize: 10, fontWeight: '700', color: colors.textMuted, marginTop: 4 }}>{label}</Text>
     </View>
   );
 }
 
 function RecordItem({ label, value, sub }: { label: string; value: string; sub: string }) {
+  const colors = useThemeColors();
   return (
     <View style={{ marginBottom: 12 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-        <Text style={{ fontSize: 13, color: '#9a9a9a', fontWeight: '600' }}>{label}</Text>
-        <Text style={{ fontSize: 14, color: '#ffffff', fontWeight: '700' }}>{value}</Text>
+        <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontSize: 14, color: colors.text, fontWeight: '700' }}>{value}</Text>
       </View>
-      <Text style={{ fontSize: 11, color: '#9a9a9a' }}>{sub}</Text>
+      <Text style={{ fontSize: 11, color: colors.textMuted }}>{sub}</Text>
     </View>
   );
 }
 
 function PeakItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  const colors = useThemeColors();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       {icon}
-      <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>{value}</Text>
-      <Text style={{ fontSize: 12, color: '#9a9a9a' }}>{label}</Text>
+      <Text style={{ fontSize: 18, fontWeight: '900', color: colors.text }}>{value}</Text>
+      <Text style={{ fontSize: 12, color: colors.textMuted }}>{label}</Text>
     </View>
   );
 }

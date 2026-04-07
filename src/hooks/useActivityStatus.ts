@@ -137,12 +137,19 @@ export function useActivityStatus(): ActivityStatus {
 
   // Timer: check every 5 seconds (more frequent for better real-time feedback)
   useEffect(() => {
+    let isChecking = false;
     const run = () => {
-      const dk = dayKey();
-      const coords = sessionsRef.current
-        .filter((s) => s.dayKey === dk)
-        .flatMap((s) => s.coords);
-      setStatus(checkStatus(coords, recentSteps));
+      if (isChecking) return; // Prevent overlapping checks
+      isChecking = true;
+      try {
+        const dk = dayKey();
+        const coords = sessionsRef.current
+          .filter((s) => s.dayKey === dk)
+          .flatMap((s) => s.coords);
+        setStatus(checkStatus(coords, recentSteps));
+      } finally {
+        isChecking = false;
+      }
     };
 
     run();

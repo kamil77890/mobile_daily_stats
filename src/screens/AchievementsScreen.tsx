@@ -1,7 +1,9 @@
+import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { ArrowLeft } from 'lucide-react-native';
 
 import { useAppStore } from '../store/useAppStore';
 import type { Achievement, AchievementTier } from '../store/achievementsTypes';
@@ -23,6 +25,7 @@ const CATEGORIES: { id: CategoryFilter; label: string; emoji: string }[] = [
 export function AchievementsScreen() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
   const selectedAccent = useAppStore(s => s.accentColor);
 
@@ -51,6 +54,20 @@ export function AchievementsScreen() {
       gap: 16,
     },
     header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 8,
+    },
+    backBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+    },
+    headerTitle: {
       marginBottom: 8,
     },
     title: {
@@ -202,6 +219,13 @@ export function AchievementsScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity
+          style={[styles.backBtn, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <ArrowLeft color={colors.text} size={20} />
+        </TouchableOpacity>
         <View>
           <Text style={styles.title}>Achievements</Text>
           <Text style={styles.subtitle}>

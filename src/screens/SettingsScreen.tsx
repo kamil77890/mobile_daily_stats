@@ -136,7 +136,7 @@ export function SettingsScreen({ navigation }: Props) {
             onPress={() => {
               void buttonPressHaptic();
               const rootNav = navigation.getParent();
-              if (rootNav) rootNav.navigate('Track');
+              if (rootNav) (rootNav as any).navigate('Track');
             }}
             activeOpacity={0.8}
           >
@@ -150,7 +150,7 @@ export function SettingsScreen({ navigation }: Props) {
             onPress={() => {
               void buttonPressHaptic();
               const rootNav = navigation.getParent();
-              if (rootNav) rootNav.navigate('Plan');
+              if (rootNav) (rootNav as any).navigate('Plan');
             }}
             activeOpacity={0.8}
           >
@@ -164,7 +164,7 @@ export function SettingsScreen({ navigation }: Props) {
             onPress={() => {
               void buttonPressHaptic();
               const rootNav = navigation.getParent();
-              if (rootNav) rootNav.navigate('Achievements');
+              if (rootNav) (rootNav as any).navigate('Achievements');
             }}
             activeOpacity={0.8}
           >

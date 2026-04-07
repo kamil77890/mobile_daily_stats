@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, ChevronRight, Clock, Flame, Plus, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Flame, Plus, Trash2 } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -152,6 +152,8 @@ export function PlanScreen() {
   const styles = StyleSheet.create({
     scroll: { flex: 1 },
     content: { paddingHorizontal: 16, gap: 10 },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
+    backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
     title: { fontSize: 28, fontWeight: '800' },
     dayNavCard: { gap: 0 },
     dayNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
@@ -206,7 +208,16 @@ export function PlanScreen() {
       style={[styles.scroll, { backgroundColor: colors.bg }]}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: 40 }]}
     >
-      <Text style={[styles.title, { color: colors.text }]}>Plan</Text>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[styles.backBtn, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <ArrowLeft color={colors.text} size={20} />
+        </TouchableOpacity>
+        <Text style={[styles.title, { color: colors.text }]}>Plan</Text>
+      </View>
 
       {/* ── Day navigation ───────────────────────────────────────── */}
       <Card style={styles.dayNavCard}>

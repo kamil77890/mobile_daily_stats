@@ -4,6 +4,8 @@ import { Check, Edit2, Target, TrendingUp } from 'lucide-react-native';
 
 import { useThemeColors } from '../theme/ThemeContext';
 import type { DailyGoal } from '../store/types';
+import { dayKey } from '../utils/dates';
+import { goalCompletedHaptic } from '../utils/haptics';
 
 type Props = {
   goal: DailyGoal;
@@ -16,11 +18,15 @@ export function CustomGoalCard({ goal, onComplete, onEdit, onDelete }: Props) {
   const colors = useThemeColors();
   const [scale] = useState(new Animated.Value(1));
 
+  const today = dayKey();
+  const isCompletedToday = goal.lastCompletedDate === today;
   const progress = goal.targetValue > 0 ? goal.currentValue / goal.targetValue : 0;
   const progressPercent = Math.min(100, Math.round(progress * 100));
-  const isCompleted = progress >= 1;
 
   const handleComplete = () => {
+    if (isCompletedToday) return; // Already completed today, prevent double-click
+
+    void goalCompletedHaptic();
     Animated.sequence([
       Animated.spring(scale, { toValue: 1.1, useNativeDriver: true, damping: 10 }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 10 }),
@@ -31,11 +37,11 @@ export function CustomGoalCard({ goal, onComplete, onEdit, onDelete }: Props) {
 
   const styles = StyleSheet.create({
     container: {
-      backgroundColor: colors.card,
+      backgroundColor: isCompletedToday ? colors.accent + '11' : colors.card,
       borderRadius: 20,
       padding: 16,
-      borderWidth: 1,
-      borderColor: isCompleted ? colors.accent : colors.border,
+      borderWidth: isCompletedToday ? 2 : 1,
+      borderColor: isCompletedToday ? colors.accent : colors.border,
       marginBottom: 12,
     },
     header: {
@@ -106,7 +112,7 @@ export function CustomGoalCard({ goal, onComplete, onEdit, onDelete }: Props) {
       textAlign: 'right',
     },
     completeButton: {
-      backgroundColor: isCompleted ? colors.accent : colors.cardElevated,
+      backgroundColor: isCompletedToday ? colors.accent : colors.cardElevated,
       borderRadius: 14,
       padding: 14,
       flexDirection: 'row',
@@ -114,10 +120,11 @@ export function CustomGoalCard({ goal, onComplete, onEdit, onDelete }: Props) {
       justifyContent: 'center',
       gap: 8,
       borderWidth: 1,
-      borderColor: isCompleted ? colors.accent : colors.border,
+      borderColor: isCompletedToday ? colors.accent : colors.border,
+      opacity: isCompletedToday ? 0.9 : 1,
     },
     completeButtonText: {
-      color: isCompleted ? colors.bg : colors.text,
+      color: isCompletedToday ? colors.bg : colors.text,
       fontSize: 14,
       fontWeight: '700',
     },
@@ -186,10 +193,11 @@ export function CustomGoalCard({ goal, onComplete, onEdit, onDelete }: Props) {
           style={styles.completeButton}
           onPress={handleComplete}
           activeOpacity={0.8}
+          disabled={isCompletedToday}
         >
-          <Check color={isCompleted ? colors.bg : colors.accent} size={18} />
+          <Check color={isCompletedToday ? colors.bg : colors.accent} size={18} />
           <Text style={styles.completeButtonText}>
-            {isCompleted ? 'Completed!' : 'Mark as Done'}
+            {isCompletedToday ? 'Completed ✓' : 'Mark as Done'}
           </Text>
         </TouchableOpacity>
       </Animated.View>

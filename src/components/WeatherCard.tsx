@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Cloud, Sun, Wind, Droplets } from 'lucide-react-native';
+import { Cloud, Sun, Wind, Droplets, Thermometer } from 'lucide-react-native';
 import Constants from 'expo-constants';
 
 import { AnimatedCard } from '../components/AnimatedCard';
@@ -12,6 +12,7 @@ import {
   getWeatherRecommendation,
   getScoreLabel,
   getScoreColor,
+  getWindSeverityInfo,
   type WeatherData,
 } from '../utils/weather';
 
@@ -36,6 +37,7 @@ type OpenWeatherResponse = {
   }[];
   wind: {
     speed: number;
+    gust?: number;
   };
   visibility?: number;
   message?: string;
@@ -159,7 +161,7 @@ export function WeatherCard() {
   return (
     <>
       <TouchableOpacity activeOpacity={0.8} onPress={() => setShowForecast(true)}>
-        <AnimatedCard delay={150}>
+        <AnimatedCard delay={150} style={{ borderColor: scoreColor, borderWidth: 2 }}>
           <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
@@ -198,6 +200,13 @@ export function WeatherCard() {
                 label="Wind"
                 value={`${Math.round(weather.windSpeed * 3.6)} km/h`}
               />
+              {weather.windGust && weather.windGust > 7 && (
+                <DetailItem
+                  icon={<Thermometer color={colors.accent} size={16} />}
+                  label="Gusts"
+                  value={`${Math.round(weather.windGust * 3.6)} km/h`}
+                />
+              )}
             </View>
 
             {/* Hint */}
@@ -240,6 +249,7 @@ async function fetchWeatherByCoords(
     humidity: data.main.humidity,
     condition: mapOpenWeatherCondition(data.weather[0].main),
     windSpeed: data.wind.speed,
+    windGust: data.wind.gust,
     location: data.name,
   };
 }

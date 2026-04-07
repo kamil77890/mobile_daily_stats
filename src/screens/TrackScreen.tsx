@@ -1,7 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Location from 'expo-location';
-import { Calendar, Clock, Flame, MoreVertical, Play, Square } from 'lucide-react-native';
+import { ArrowLeft, Calendar, Clock, Flame, MoreVertical, Play, Square } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -137,6 +137,8 @@ export function TrackScreen() {
   const styles = StyleSheet.create({
     scroll: { flex: 1 },
     content: { paddingHorizontal: 16, gap: 12 },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
+    backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
     top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     title: { fontSize: 22, fontWeight: '800' },
     exLabel: { fontWeight: '700', marginTop: 6 },
@@ -181,8 +183,15 @@ export function TrackScreen() {
       style={[styles.scroll, { backgroundColor: colors.bg }]}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: 32 }]}
     >
-      <View style={styles.top}>
-        <Text style={[styles.title, { color: colors.text }]}>Track workout</Text>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[styles.backBtn, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <ArrowLeft color={colors.text} size={20} />
+        </TouchableOpacity>
+        <Text style={[styles.title, { color: colors.text, flex: 1 }]}>Track workout</Text>
         <TouchableOpacity onPress={() => setPickOpen(true)}>
           <MoreVertical color={colors.text} size={22} />
         </TouchableOpacity>
